@@ -1,0 +1,525 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Identity (id = Supabase auth.users.id) ──────────────────────────────────
+
+model User {
+  id                   String    @id @db.Uuid
+  name                 String?
+  email                String    @unique
+  emailVerified        DateTime?
+  image                String?
+  activeOrganizationId String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  memberships         OrganizationMember[]
+  teamMemberships     TeamMember[]
+  invitationsSent     Invitation[]         @relation("InvitationInviter")
+  auditLogs           AuditLog[]
+  notifications       Notification[]
+  assignedLeads       Lead[]               @relation("LeadAssignee")
+  authoredNotes       LeadNote[]
+  assignedTasks       LeadTask[]
+  assignedFollowUps   LeadFollowUp[]
+  activities          LeadActivity[]
+  importJobs          ImportJob[]
+
+  @@map("users")
+}
+
+enum MemberStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+model Organization {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  logoUrl      String?
+  industry     String?
+  country      String?
+  currency     String   @default("USD")
+  timezone     String   @default("UTC")
+  contactEmail String?
+  contactPhone String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  members       OrganizationMember[]
+  roles         Role[]
+  teams         Team[]
+  invitations   Invitation[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  leadSources   LeadSource[]
+  pipelines     Pipeline[]
+  leadStages    LeadStage[]
+  leads         Lead[]
+  leadTags      LeadTag[]
+  leadNotes     LeadNote[]
+  leadTasks     LeadTask[]
+  leadFollowUps LeadFollowUp[]
+  leadActivities LeadActivity[]
+  importJobs    ImportJob[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String       @db.Uuid
+  roleId         String
+  isOwner        Boolean      @default(false)
+  status         MemberStatus @default(ACTIVE)
+  joinedAt       DateTime     @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([roleId])
+  @@map("organization_members")
+}
+
+model Invitation {
+  id              String           @id @default(cuid())
+  organizationId  String
+  email           String
+  roleId          String
+  tokenHash       String           @unique
+  status          InvitationStatus @default(PENDING)
+  invitedByUserId String           @db.Uuid
+  expiresAt       DateTime
+  createdAt       DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+  invitedBy    User         @relation("InvitationInviter", fields: [invitedByUserId], references: [id])
+
+  @@index([organizationId, email])
+  @@index([tokenHash])
+  @@index([organizationId])
+  @@map("invitations")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  module      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rolePermissions RolePermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model Role {
+  id             String   @id @default(cuid())
+  organizationId String
+  code           String
+  name           String
+  description    String?
+  isSystem       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions  RolePermission[]
+  members      OrganizationMember[]
+  invitations  Invitation[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model Team {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members      TeamMember[]
+  leads        Lead[]
+
+  @@index([organizationId])
+  @@map("teams")
+}
+
+model TeamMember {
+  teamId   String
+  userId   String   @db.Uuid
+  role     String   @default("member")
+  joinedAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
+  @@map("team_members")
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String?  @db.Uuid
+  action         String
+  entity         String
+  entityId       String?
+  previous       Json?
+  next           Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String    @db.Uuid
+  type           String
+  title          String
+  body           String?
+  data           Json?
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, readAt])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ─── Leads ───────────────────────────────────────────────────────────────────
+
+enum LeadStatus {
+  NEW
+  OPEN
+  IN_PROGRESS
+  QUALIFIED
+  UNQUALIFIED
+  CONVERTED
+  LOST
+}
+
+enum LeadPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum FollowUpType {
+  CALL
+  MEETING
+  EMAIL
+  WHATSAPP
+  TASK
+}
+
+model LeadSource {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  isSystem       Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leads        Lead[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("lead_sources")
+}
+
+model Pipeline {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  stages       LeadStage[]
+  leads        Lead[]
+
+  @@index([organizationId])
+  @@map("pipelines")
+}
+
+model LeadStage {
+  id             String   @id @default(cuid())
+  organizationId String
+  pipelineId     String
+  name           String
+  sortOrder      Int
+  probability    Int      @default(0)
+  color          String?
+  isWon          Boolean  @default(false)
+  isLost         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pipeline     Pipeline     @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  leads        Lead[]
+
+  @@index([organizationId])
+  @@index([pipelineId, sortOrder])
+  @@map("lead_stages")
+}
+
+model Lead {
+  id               String       @id @default(cuid())
+  organizationId   String
+  firstName        String?
+  lastName         String?
+  fullName         String
+  company          String?
+  email            String?
+  phone            String?
+  alternatePhone   String?
+  whatsappNumber   String?
+  website          String?
+  city             String?
+  state            String?
+  country          String?
+  industry         String?
+  jobTitle         String?
+  companySize      String?
+  requirement      String?
+  productInterest  String?
+  expectedValue    Decimal?     @db.Decimal(12, 2)
+  budget           String?
+  purchaseTimeline String?
+  sourceId         String?
+  sourceDetail     String?
+  campaign         String?
+  status           LeadStatus   @default(NEW)
+  pipelineId       String?
+  stageId          String?
+  leadScore        Int          @default(0)
+  priority         LeadPriority @default(MEDIUM)
+  assignedUserId   String?      @db.Uuid
+  assignedTeamId   String?
+  description      String?
+  lastContactedAt  DateTime?
+  nextFollowUpAt   DateTime?
+  convertedAt      DateTime?
+  lostReason       String?
+  archivedAt       DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  source       LeadSource?  @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  pipeline     Pipeline?    @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  stage        LeadStage?   @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  assignedUser User?        @relation("LeadAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  assignedTeam Team?        @relation(fields: [assignedTeamId], references: [id], onDelete: SetNull)
+  tags         LeadTagOnLead[]
+  notes        LeadNote[]
+  tasks        LeadTask[]
+  followUps    LeadFollowUp[]
+  activities   LeadActivity[]
+
+  @@index([organizationId, email])
+  @@index([organizationId, phone])
+  @@index([organizationId, status])
+  @@index([organizationId, stageId])
+  @@index([organizationId, sourceId])
+  @@index([organizationId, assignedUserId])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, nextFollowUpAt])
+  @@map("leads")
+}
+
+model LeadTag {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  createdAt      DateTime @default(now())
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leads        LeadTagOnLead[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("lead_tags")
+}
+
+model LeadTagOnLead {
+  leadId String
+  tagId  String
+
+  lead Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tag  LeadTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([leadId, tagId])
+  @@map("lead_tags_on_leads")
+}
+
+model LeadNote {
+  id             String   @id @default(cuid())
+  organizationId String
+  leadId         String
+  authorId       String   @db.Uuid
+  content        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  author       User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, leadId])
+  @@map("lead_notes")
+}
+
+model LeadTask {
+  id             String       @id @default(cuid())
+  organizationId String
+  leadId         String
+  title          String
+  description    String?
+  assignedUserId String?      @db.Uuid
+  dueDate        DateTime?
+  priority       LeadPriority @default(MEDIUM)
+  status         TaskStatus   @default(PENDING)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignedUser User?        @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, leadId])
+  @@index([organizationId, status, dueDate])
+  @@map("lead_tasks")
+}
+
+model LeadFollowUp {
+  id             String       @id @default(cuid())
+  organizationId String
+  leadId         String
+  type           FollowUpType @default(CALL)
+  title          String
+  description    String?
+  dueAt          DateTime
+  assignedUserId String?      @db.Uuid
+  priority       LeadPriority @default(MEDIUM)
+  status         TaskStatus   @default(PENDING)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignedUser User?        @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, leadId])
+  @@index([organizationId, status, dueAt])
+  @@map("lead_follow_ups")
+}
+
+model LeadActivity {
+  id             String   @id @default(cuid())
+  organizationId String
+  leadId         String
+  actorId        String?  @db.Uuid
+  type           String
+  message        String
+  previous       Json?
+  next           Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  actor        User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, leadId, createdAt])
+  @@map("lead_activities")
+}
+
+model ImportJob {
+  id             String    @id @default(cuid())
+  organizationId String
+  createdById    String    @db.Uuid
+  status         String    @default("COMPLETED")
+  filename       String?
+  totalRows      Int       @default(0)
+  imported       Int       @default(0)
+  duplicates     Int       @default(0)
+  errors         Int       @default(0)
+  failedRows     Json?
+  createdAt      DateTime  @default(now())
+  completedAt    DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@map("import_jobs")
+}

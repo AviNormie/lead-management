@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Surfaces */
+  --ic-canvas: #e8ecf1;
+  --ic-surface: #ffffff;
+  --ic-surface-muted: #f4f6f9;
+  --ic-sidebar: #ffffff;
+  --ic-rail: #f7f8fa;
+
+  /* Text */
+  --ic-foreground: #1a1d26;
+  --ic-muted: #6b7280;
+  --ic-subtle: #9aa3b2;
+
+  /* Borders */
+  --ic-border: #e5e7eb;
+  --ic-border-strong: #d1d5db;
+
+  /* Brand / accents (from Figma) */
+  --ic-primary: #2f6bff;
+  --ic-primary-soft: #e8efff;
+  --ic-nav-active: #2a2f3a;
+  --ic-success: #16a34a;
+  --ic-danger: #ef4444;
+  --ic-warning: #f59e0b;
+
+  /* Module rail accents */
+  --ic-module-orange: #ff8a3d;
+  --ic-module-purple: #7c5cff;
+  --ic-module-teal: #2ec4b6;
+  --ic-module-yellow: #f5c542;
+
+  --background: var(--ic-canvas);
+  --foreground: var(--ic-foreground);
+
+  --radius-card: 16px;
+  --radius-panel: 28px;
+  --radius-pill: 999px;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04),
+    0 8px 24px rgba(16, 24, 40, 0.04);
+}
+
+@layer base {
+  * {
+    @apply border-[var(--ic-border)];
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-[var(--ic-canvas)] text-[var(--ic-foreground)] antialiased;
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    margin: 0;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}
+
+@layer utilities {
+  .ic-card {
+    @apply rounded-[var(--radius-card)] border border-[var(--ic-border)] bg-[var(--ic-surface)];
+    box-shadow: var(--shadow-card);
+  }
+
+  .ic-panel {
+    @apply rounded-[var(--radius-panel)] bg-[var(--ic-surface)];
+    box-shadow: var(--shadow-card);
+  }
+}
