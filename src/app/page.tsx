@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getSupabaseAuthUser } from "@/lib/auth/supabase-user";
 import { isAppConfigured } from "@/lib/config/env";
 import { getSessionContext } from "@/lib/tenant";
 
@@ -11,6 +12,10 @@ export default async function HomePage() {
 
   const session = await getSessionContext();
   if (!session?.userId) {
+    const authUser = await getSupabaseAuthUser();
+    if (authUser) {
+      redirect("/auth/session-error");
+    }
     redirect("/login");
   }
   if (!session.activeOrganizationId) {

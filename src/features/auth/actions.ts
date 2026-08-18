@@ -70,11 +70,22 @@ export async function registerAction(
 
     return { ok: true };
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes("Missing NEXT_PUBLIC_SUPABASE")
+    ) {
+      return configError();
+    }
     if (isAppError(error)) {
       return { ok: false, error: error.message, code: error.code };
     }
     console.error(error);
-    return { ok: false, error: "Registration failed" };
+    return {
+      ok: false,
+      error:
+        "Registration succeeded in auth, but the app database is unavailable. Check DATABASE_URL.",
+      code: "DATABASE",
+    };
   }
 }
 

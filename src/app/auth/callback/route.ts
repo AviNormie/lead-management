@@ -8,14 +8,27 @@ export async function GET(request: Request) {
   const next = searchParams.get("next") ?? "/dashboard";
   const safeNext = next.startsWith("/") ? next : "/dashboard";
 
-  if (code) {
-    const supabase = await createClient();
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error && data.user) {
-      await ensurePrismaUser(data.user);
-      return NextResponse.redirect(`${origin}${safeNext}`);
-    }
+  if (!code) {
+    return NextResponse.redirect(`${origin}/login?error=auth`);
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth`);
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error || !data.user) {
+      return NextResponse.redirect(`${origin}/login?error=auth`);
+    }
+
+    try {
+      await ensurePrismaUser(data.user);
+    } catch (dbError) {
+      console.error("ensurePrismaUser failed in auth callback", dbError);
+      return NextResponse.redirect(`${origin}/auth/session-error`);
+    }
+
+    return NextResponse.redirect(`${origin}${safeNext}`);
+  } catch (error) {
+    console.error("auth callback failed", error);
+    return NextResponse.redirect(`${origin}/login?error=auth`);
+  }
 }

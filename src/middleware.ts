@@ -9,6 +9,7 @@ const publicPaths = [
   "/verify-email",
   "/accept-invite",
   "/auth/callback",
+  "/auth/session-error",
   "/setup",
 ];
 
@@ -52,17 +53,6 @@ export async function middleware(request: NextRequest) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     redirectUrl.searchParams.set("callbackUrl", pathname);
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  if (
-    user &&
-    (pathname === "/login" ||
-      pathname === "/register" ||
-      pathname === "/forgot-password")
-  ) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/";
     return NextResponse.redirect(redirectUrl);
   }
 
