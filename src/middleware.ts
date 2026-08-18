@@ -39,21 +39,35 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
-  const isPublic =
-    publicPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
-    pathname.startsWith("/api/") ||
-    pathname === "/";
+    const { pathname } = request.nextUrl;
+    const isPublic =
+      publicPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
+      pathname.startsWith("/api/") ||
+      pathname === "/";
 
-  if (!user && !isPublic) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("callbackUrl", pathname);
-    return NextResponse.redirect(redirectUrl);
+    if (!user && !isPublic) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/login";
+      redirectUrl.searchParams.set("callbackUrl", pathname);
+      return NextResponse.redirect(redirectUrl);
+    }
+  } catch {
+    // Allow public routes through if auth refresh fails.
+    const { pathname } = request.nextUrl;
+    const isPublic =
+      publicPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
+      pathname.startsWith("/api/") ||
+      pathname === "/";
+    if (!isPublic) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/login";
+      return NextResponse.redirect(redirectUrl);
+    }
   }
 
   return supabaseResponse;

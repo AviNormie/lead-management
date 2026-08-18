@@ -7,10 +7,9 @@ import { createClient } from "@/lib/supabase/server";
 import { ensurePrismaUser } from "@/lib/auth/ensure-user";
 import { isAppError } from "@/lib/errors";
 import { loginSchema, registerSchema } from "@/lib/validations/auth";
+import type { ActionResult } from "@/features/auth/types";
 
-export type ActionResult =
-  | { ok: true; message?: string; needsVerification?: boolean }
-  | { ok: false; error: string; code?: string };
+export type { ActionResult } from "@/features/auth/types";
 
 function configError(): ActionResult {
   return {

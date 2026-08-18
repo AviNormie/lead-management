@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useActionState, useEffect } from "react";
 import { acceptInvitationAction } from "@/features/members/actions";
-import type { ActionResult } from "@/features/auth/actions";
+import type { ActionResult } from "@/features/auth/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
