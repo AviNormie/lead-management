@@ -10,7 +10,7 @@ export function getDatabaseErrorMessage(error: unknown): string {
   }
 
   if (message.includes("P1001") || message.includes("Can't reach database")) {
-    return "Cannot reach Postgres. Use the Supabase pooler URLs from Settings → Database, not localhost.";
+    return "Cannot connect to Postgres. In Supabase → Connect, copy the pooler URLs again (ports 6543 and 5432), reset the database password if needed, and update DATABASE_URL + DIRECT_URL on Vercel.";
   }
 
   if (message.includes("does not exist") || message.includes("P2021")) {

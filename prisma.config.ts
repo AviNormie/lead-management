@@ -1,5 +1,5 @@
 import { config as loadEnv } from "dotenv";
-import { defineConfig } from "prisma/config";
+import { defineConfig, env } from "prisma/config";
 
 loadEnv({ path: ".env", quiet: true });
 
@@ -8,5 +8,8 @@ export default defineConfig({
   migrations: {
     path: "prisma/migrations",
     seed: "tsx prisma/seed.ts",
+  },
+  datasource: {
+    url: env("DIRECT_URL"),
   },
 });
