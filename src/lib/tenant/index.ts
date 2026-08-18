@@ -153,14 +153,14 @@ export async function requirePermission(
   permissionCode: string,
 ): Promise<TenantContext> {
   const tenant = await requireOrganizationAccess();
-  if (!tenant.permissions.has(permissionCode)) {
-    throw new AppError(
-      "FORBIDDEN",
-      `Missing permission: ${permissionCode}`,
-      403,
-    );
+  if (tenant.isOwner || tenant.permissions.has(permissionCode)) {
+    return tenant;
   }
-  return tenant;
+  throw new AppError(
+    "FORBIDDEN",
+    `Missing permission: ${permissionCode}`,
+    403,
+  );
 }
 
 export function hasPermission(

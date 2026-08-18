@@ -1,8 +1,14 @@
 import { format } from "date-fns";
 import { Download } from "lucide-react";
+import { redirect } from "next/navigation";
+import Link from "next/link";
 import { requirePermission } from "@/lib/tenant";
 import { prisma } from "@/lib/db/prisma";
-import { getLeadDashboardStats } from "@/features/leads/queries";
+import {
+  EMPTY_DASHBOARD_STATS,
+  getLeadDashboardStats,
+} from "@/features/leads/queries";
+import { isAppError } from "@/lib/errors";
 import { PageHeader } from "@/components/layout/page-header";
 import { KpiCard } from "@/components/layout/kpi-card";
 import { PerformanceChartCard } from "@/components/layout/performance-chart-card";
@@ -10,27 +16,78 @@ import { PerformanceGaugeCard } from "@/components/layout/performance-gauge-card
 import { DataTable } from "@/components/layout/data-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export default async function DashboardPage() {
-  const tenant = await requirePermission("dashboard.view");
-  const [organization, memberCount, stats, recentLeads] = await Promise.all([
-    prisma.organization.findUnique({ where: { id: tenant.organizationId } }),
-    prisma.organizationMember.count({
+  let tenant;
+  try {
+    tenant = await requirePermission("dashboard.view");
+  } catch (error) {
+    if (isAppError(error) && error.code === "UNAUTHORIZED") {
+      redirect("/login");
+    }
+    if (isAppError(error) && error.code === "NO_ORGANIZATION") {
+      redirect("/onboarding/organization");
+    }
+    console.error("Dashboard auth failed", error);
+    redirect("/auth/session-error");
+  }
+
+  let organizationName = "Organization";
+  let currency = "USD";
+  let memberCount = 0;
+  let stats = EMPTY_DASHBOARD_STATS;
+  let recentLeads: {
+    id: string;
+    fullName: string;
+    sourceName: string;
+    assignedName: string;
+    value: string;
+    createdAt: Date;
+  }[] = [];
+  let userName: string | undefined;
+
+  try {
+    const organization = await prisma.organization.findUnique({
+      where: { id: tenant.organizationId },
+      select: { name: true, currency: true },
+    });
+    organizationName = organization?.name ?? organizationName;
+    currency = organization?.currency ?? currency;
+
+    memberCount = await prisma.organizationMember.count({
       where: { organizationId: tenant.organizationId, status: "ACTIVE" },
-    }),
-    getLeadDashboardStats(tenant.organizationId, tenant.userId),
-    prisma.lead.findMany({
+    });
+
+    stats = await getLeadDashboardStats(tenant.organizationId, tenant.userId);
+
+    const leads = await prisma.lead.findMany({
       where: { organizationId: tenant.organizationId, archivedAt: null },
       include: { source: true, assignedUser: true },
       orderBy: { createdAt: "desc" },
       take: 8,
-    }),
-  ]);
+    });
+    recentLeads = leads.map((lead) => ({
+      id: lead.id,
+      fullName: lead.fullName,
+      sourceName: lead.source?.name ?? "—",
+      assignedName: lead.assignedUser?.name ?? "—",
+      value: lead.expectedValue?.toString() ?? "—",
+      createdAt: lead.createdAt,
+    }));
 
-  const user = await prisma.user.findUnique({ where: { id: tenant.userId } });
+    const user = await prisma.user.findUnique({
+      where: { id: tenant.userId },
+      select: { name: true },
+    });
+    userName = user?.name ?? undefined;
+  } catch (error) {
+    console.error("Dashboard data failed", error);
+  }
+
   const today = format(new Date(), "dd MMM yyyy");
-
   const kpis = [
     { label: "Total leads", value: stats.total, highlighted: false },
     { label: "New leads", value: stats.newLeads, highlighted: true },
@@ -43,7 +100,7 @@ export default async function DashboardPage() {
     { label: "Lost leads", value: stats.lost },
     {
       label: "Pipeline value",
-      value: `${organization?.currency ?? "USD"} ${stats.pipelineValue}`,
+      value: `${currency} ${stats.pipelineValue}`,
     },
   ];
 
@@ -52,7 +109,7 @@ export default async function DashboardPage() {
       <PageHeader
         breadcrumbs={["Overview", "Lead Management"]}
         title="Lead Management"
-        subtitle={`${today} · ${organization?.name ?? "Organization"} · ${memberCount} members · Conversion ${stats.conversionRate}%`}
+        subtitle={`${today} · ${organizationName} · ${memberCount} members · Conversion ${stats.conversionRate}%`}
         actions={
           <Link href="/leads">
             <Button type="button" variant="secondary" size="sm">
@@ -107,13 +164,9 @@ export default async function DashboardPage() {
                           {lead.fullName}
                         </Link>
                       </td>
-                      <td className="px-3 py-3">{lead.source?.name ?? "—"}</td>
-                      <td className="px-3 py-3">
-                        {lead.assignedUser?.name ?? "—"}
-                      </td>
-                      <td className="px-3 py-3">
-                        {lead.expectedValue?.toString() ?? "—"}
-                      </td>
+                      <td className="px-3 py-3">{lead.sourceName}</td>
+                      <td className="px-3 py-3">{lead.assignedName}</td>
+                      <td className="px-3 py-3">{lead.value}</td>
                       <td className="px-3 py-3 text-muted">
                         {format(lead.createdAt, "dd MMM yyyy")}
                       </td>
@@ -124,7 +177,7 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
         <PerformanceGaugeCard
-          name={user?.name}
+          name={userName}
           pendingLabel="Pending follow-ups"
           pendingValue={String(stats.followUpsDue)}
           lostLabel="Lost leads"

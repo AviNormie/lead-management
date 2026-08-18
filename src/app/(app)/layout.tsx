@@ -29,21 +29,19 @@ export default async function AppLayout({
   }
 
   try {
-    const [organization, membership] = await Promise.all([
-      prisma.organization.findUnique({
-        where: { id: session.activeOrganizationId },
-        select: { name: true, slug: true },
-      }),
-      prisma.organizationMember.findUnique({
-        where: {
-          organizationId_userId: {
-            organizationId: session.activeOrganizationId,
-            userId: session.userId,
-          },
+    const organization = await prisma.organization.findUnique({
+      where: { id: session.activeOrganizationId },
+      select: { name: true, slug: true },
+    });
+    const membership = await prisma.organizationMember.findUnique({
+      where: {
+        organizationId_userId: {
+          organizationId: session.activeOrganizationId,
+          userId: session.userId,
         },
-        include: { role: { select: { name: true } } },
-      }),
-    ]);
+      },
+      include: { role: { select: { name: true } } },
+    });
 
     return (
       <AppShell
@@ -56,6 +54,14 @@ export default async function AppLayout({
     );
   } catch (error) {
     console.error("AppLayout failed", error);
-    redirect("/setup");
+    return (
+      <AppShell
+        userName={session.name ?? session.email ?? "User"}
+        roleName="Member"
+        organizationName="Organization"
+      >
+        {children}
+      </AppShell>
+    );
   }
 }
