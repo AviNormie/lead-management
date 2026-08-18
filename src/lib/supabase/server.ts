@@ -14,7 +14,7 @@ export async function createClient() {
   const env = getSupabasePublicEnv();
   if (!env) {
     throw new Error(
-      "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. Add them to .env.local and restart npm run dev.",
+      "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. Add them to .env and restart npm run dev.",
     );
   }
   const { url, anonKey } = env;

@@ -9,6 +9,7 @@ const publicPaths = [
   "/verify-email",
   "/accept-invite",
   "/auth/callback",
+  "/setup",
 ];
 
 export async function middleware(request: NextRequest) {
@@ -61,7 +62,7 @@ export async function middleware(request: NextRequest) {
       pathname === "/forgot-password")
   ) {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/dashboard";
+    redirectUrl.pathname = "/";
     return NextResponse.redirect(redirectUrl);
   }
 

@@ -1,4 +1,5 @@
 import { MemberStatus } from "@prisma/client";
+import { hasSupabasePublicEnv } from "@/lib/config/env";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db/prisma";
 import { AppError } from "@/lib/errors";
@@ -24,49 +25,55 @@ export type TenantContext = {
 };
 
 export async function getSessionContext(): Promise<SessionContext | null> {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    return null;
-  }
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  if (!hasSupabasePublicEnv()) {
     return null;
   }
 
-  const dbUser = await ensurePrismaUser(user);
-  const membership = dbUser.activeOrganizationId
-    ? await prisma.organizationMember.findUnique({
-        where: {
-          organizationId_userId: {
-            organizationId: dbUser.activeOrganizationId,
-            userId: dbUser.id,
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return null;
+    }
+
+    const dbUser = await ensurePrismaUser(user);
+    const membership = dbUser.activeOrganizationId
+      ? await prisma.organizationMember.findUnique({
+          where: {
+            organizationId_userId: {
+              organizationId: dbUser.activeOrganizationId,
+              userId: dbUser.id,
+            },
           },
-        },
-      })
-    : await prisma.organizationMember.findFirst({
-        where: { userId: dbUser.id, status: MemberStatus.ACTIVE },
-        orderBy: { joinedAt: "asc" },
+        })
+      : await prisma.organizationMember.findFirst({
+          where: { userId: dbUser.id, status: MemberStatus.ACTIVE },
+          orderBy: { joinedAt: "asc" },
+        });
+
+    if (
+      membership &&
+      dbUser.activeOrganizationId !== membership.organizationId
+    ) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { activeOrganizationId: membership.organizationId },
       });
+    }
 
-  if (
-    membership &&
-    dbUser.activeOrganizationId !== membership.organizationId
-  ) {
-    await prisma.user.update({
-      where: { id: dbUser.id },
-      data: { activeOrganizationId: membership.organizationId },
-    });
+    return {
+      userId: dbUser.id,
+      email: dbUser.email,
+      name: dbUser.name,
+      activeOrganizationId: membership?.organizationId ?? null,
+      membershipId: membership?.id ?? null,
+    };
+  } catch (error) {
+    console.error("getSessionContext failed", error);
+    return null;
   }
-
-  return {
-    userId: dbUser.id,
-    email: dbUser.email,
-    name: dbUser.name,
-    activeOrganizationId: membership?.organizationId ?? null,
-    membershipId: membership?.id ?? null,
-  };
 }
 
 export async function requireAuth(): Promise<SessionContext> {

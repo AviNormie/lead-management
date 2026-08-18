@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { getSiteUrl, hasSupabasePublicEnv } from "@/lib/config/env";
 import { createClient } from "@/lib/supabase/server";
 import { ensurePrismaUser } from "@/lib/auth/ensure-user";
 import { isAppError } from "@/lib/errors";
@@ -10,8 +11,13 @@ export type ActionResult =
   | { ok: true; message?: string; needsVerification?: boolean }
   | { ok: false; error: string; code?: string };
 
-function siteUrl() {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+function configError(): ActionResult {
+  return {
+    ok: false,
+    error:
+      "Server is not configured. Add Supabase and database env vars in Vercel, then redeploy.",
+    code: "CONFIG",
+  };
 }
 
 export async function registerAction(
@@ -19,6 +25,10 @@ export async function registerAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
+    if (!hasSupabasePublicEnv()) {
+      return configError();
+    }
+
     const parsed = registerSchema.safeParse({
       name: formData.get("name"),
       email: formData.get("email"),
@@ -38,7 +48,7 @@ export async function registerAction(
       password: parsed.data.password,
       options: {
         data: { name: parsed.data.name },
-        emailRedirectTo: `${siteUrl()}/auth/callback`,
+        emailRedirectTo: `${getSiteUrl()}/auth/callback`,
       },
     });
 
@@ -73,6 +83,10 @@ export async function loginAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
+    if (!hasSupabasePublicEnv()) {
+      return configError();
+    }
+
     const parsed = loginSchema.safeParse({
       email: formData.get("email"),
       password: formData.get("password"),
@@ -94,16 +108,36 @@ export async function loginAction(
       return { ok: false, error: "Invalid email or password" };
     }
     if (data.user) {
-      await ensurePrismaUser(data.user);
+      try {
+        await ensurePrismaUser(data.user);
+      } catch (error) {
+        console.error("ensurePrismaUser failed after login", error);
+        await supabase.auth.signOut();
+        return {
+          ok: false,
+          error:
+            "Signed in to auth, but the app database is unavailable. Check DATABASE_URL on Vercel.",
+          code: "DATABASE",
+        };
+      }
     }
     return { ok: true };
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes("Missing NEXT_PUBLIC_SUPABASE")
+    ) {
+      return configError();
+    }
     console.error(error);
     return { ok: false, error: "Login failed" };
   }
 }
 
 export async function logoutAction() {
+  if (!hasSupabasePublicEnv()) {
+    redirect("/setup");
+  }
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/login");
@@ -122,7 +156,7 @@ export async function forgotPasswordAction(
 
   const supabase = await createClient();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${siteUrl()}/auth/callback?next=/reset-password`,
+    redirectTo: `${getSiteUrl()}/auth/callback?next=/reset-password`,
   });
   if (error) {
     return { ok: false, error: error.message };
