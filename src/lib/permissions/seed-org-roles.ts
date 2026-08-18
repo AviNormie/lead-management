@@ -8,6 +8,11 @@ type DbClient = PrismaClient | Prisma.TransactionClient;
 
 /** Ensure global permission catalog exists (idempotent). */
 export async function ensurePermissionsSeeded(db: DbClient) {
+  const existingCount = await db.permission.count();
+  if (existingCount >= PERMISSIONS.length) {
+    return;
+  }
+
   for (const permission of PERMISSIONS) {
     await db.permission.upsert({
       where: { code: permission.code },
@@ -33,13 +38,17 @@ export async function ensurePermissionsSeeded(db: DbClient) {
 export async function seedOrganizationRoles(
   db: DbClient,
   organizationId: string,
+  options?: { skipPermissionSeed?: boolean },
 ) {
-  await ensurePermissionsSeeded(db);
+  if (!options?.skipPermissionSeed) {
+    await ensurePermissionsSeeded(db);
+  }
 
   const allPermissions = await db.permission.findMany();
   const byCode = new Map(allPermissions.map((p) => [p.code, p]));
 
   const rolesByCode = new Map<string, string>();
+  const rolePermissionLinks: { roleId: string; permissionId: string }[] = [];
 
   for (const template of SYSTEM_ROLE_TEMPLATES) {
     const role = await db.role.create({
@@ -58,20 +67,22 @@ export async function seedOrganizationRoles(
         ? allPermissions.map((p) => p.code)
         : template.permissions;
 
-    const links = permissionCodes
-      .map((code) => byCode.get(code))
-      .filter((p): p is (typeof allPermissions)[number] => Boolean(p))
-      .map((permission) => ({
-        roleId: role.id,
-        permissionId: permission.id,
-      }));
-
-    if (links.length > 0) {
-      await db.rolePermission.createMany({
-        data: links,
-        skipDuplicates: true,
-      });
+    for (const code of permissionCodes) {
+      const permission = byCode.get(code);
+      if (permission) {
+        rolePermissionLinks.push({
+          roleId: role.id,
+          permissionId: permission.id,
+        });
+      }
     }
+  }
+
+  if (rolePermissionLinks.length > 0) {
+    await db.rolePermission.createMany({
+      data: rolePermissionLinks,
+      skipDuplicates: true,
+    });
   }
 
   return rolesByCode;

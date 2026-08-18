@@ -17,5 +17,9 @@ export function getDatabaseErrorMessage(error: unknown): string {
     return "Database tables are missing. Run: npx prisma migrate deploy";
   }
 
+  if (message.includes("P2028") || message.includes("timed out")) {
+    return "Organization setup timed out. Please try again in a moment.";
+  }
+
   return "App database is unavailable. Check DATABASE_URL and DIRECT_URL in Vercel, then redeploy.";
 }

@@ -11,7 +11,9 @@ import {
   updateOrganizationSchema,
 } from "@/lib/validations/auth";
 import { isAppError } from "@/lib/errors";
-import type { ActionResult } from "@/features/auth/actions";
+import { getDatabaseErrorMessage } from "@/lib/db/error-message";
+import type { ActionResult } from "@/features/auth/types";
+import { ensurePermissionsSeeded } from "@/lib/permissions/seed-org-roles";
 
 async function uniqueSlug(base: string): Promise<string> {
   const slug = slugify(base) || "organization";
@@ -60,53 +62,62 @@ export async function createOrganizationAction(
 
     const slug = await uniqueSlug(parsed.data.name);
 
-    await prisma.$transaction(async (tx) => {
-      const org = await tx.organization.create({
-        data: {
-          name: parsed.data.name,
-          slug,
-          industry: parsed.data.industry,
-          country: parsed.data.country,
-          currency: parsed.data.currency,
-          timezone: parsed.data.timezone,
-          contactEmail: parsed.data.contactEmail || null,
-          contactPhone: parsed.data.contactPhone || null,
-        },
-      });
+    // Global permission catalog is shared across orgs; seed outside the transaction
+    // to keep org creation fast enough for serverless timeouts.
+    await ensurePermissionsSeeded(prisma);
 
-      const rolesByCode = await seedOrganizationRoles(tx, org.id);
-      await seedOrganizationLeadDefaults(tx, org.id);
-      const ownerRoleId = rolesByCode.get("owner");
-      if (!ownerRoleId) {
-        throw new Error("Owner role was not created");
-      }
+    await prisma.$transaction(
+      async (tx) => {
+        const org = await tx.organization.create({
+          data: {
+            name: parsed.data.name,
+            slug,
+            industry: parsed.data.industry,
+            country: parsed.data.country,
+            currency: parsed.data.currency,
+            timezone: parsed.data.timezone,
+            contactEmail: parsed.data.contactEmail || null,
+            contactPhone: parsed.data.contactPhone || null,
+          },
+        });
 
-      await tx.organizationMember.create({
-        data: {
-          organizationId: org.id,
-          userId: session.userId,
-          roleId: ownerRoleId,
-          isOwner: true,
-          status: "ACTIVE",
-        },
-      });
+        const rolesByCode = await seedOrganizationRoles(tx, org.id, {
+          skipPermissionSeed: true,
+        });
+        await seedOrganizationLeadDefaults(tx, org.id);
+        const ownerRoleId = rolesByCode.get("owner");
+        if (!ownerRoleId) {
+          throw new Error("Owner role was not created");
+        }
 
-      await tx.user.update({
-        where: { id: session.userId },
-        data: { activeOrganizationId: org.id },
-      });
+        await tx.organizationMember.create({
+          data: {
+            organizationId: org.id,
+            userId: session.userId,
+            roleId: ownerRoleId,
+            isOwner: true,
+            status: "ACTIVE",
+          },
+        });
 
-      await tx.auditLog.create({
-        data: {
-          organizationId: org.id,
-          userId: session.userId,
-          action: "organization.created",
-          entity: "Organization",
-          entityId: org.id,
-          next: { name: org.name, slug: org.slug },
-        },
-      });
-    });
+        await tx.user.update({
+          where: { id: session.userId },
+          data: { activeOrganizationId: org.id },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: org.id,
+            userId: session.userId,
+            action: "organization.created",
+            entity: "Organization",
+            entityId: org.id,
+            next: { name: org.name, slug: org.slug },
+          },
+        });
+      },
+      { timeout: 60_000 },
+    );
 
     revalidatePath("/", "layout");
     return { ok: true };
@@ -114,8 +125,12 @@ export async function createOrganizationAction(
     if (isAppError(error)) {
       return { ok: false, error: error.message, code: error.code };
     }
-    console.error(error);
-    return { ok: false, error: "Failed to create organization" };
+    console.error("createOrganizationAction failed", error);
+    const message =
+      error instanceof Error && error.message.includes("P2028")
+        ? "Organization setup timed out. Please try again."
+        : getDatabaseErrorMessage(error);
+    return { ok: false, error: message, code: "ORG_CREATE" };
   }
 }
 
