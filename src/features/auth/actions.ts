@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { getDatabaseErrorMessage } from "@/lib/db/error-message";
 import { getSiteUrl, hasSupabasePublicEnv } from "@/lib/config/env";
 import { createClient } from "@/lib/supabase/server";
 import { ensurePrismaUser } from "@/lib/auth/ensure-user";
@@ -82,8 +83,7 @@ export async function registerAction(
     console.error(error);
     return {
       ok: false,
-      error:
-        "Registration succeeded in auth, but the app database is unavailable. Check DATABASE_URL.",
+      error: getDatabaseErrorMessage(error),
       code: "DATABASE",
     };
   }
@@ -126,8 +126,7 @@ export async function loginAction(
         await supabase.auth.signOut();
         return {
           ok: false,
-          error:
-            "Signed in to auth, but the app database is unavailable. Check DATABASE_URL on Vercel.",
+          error: getDatabaseErrorMessage(error),
           code: "DATABASE",
         };
       }

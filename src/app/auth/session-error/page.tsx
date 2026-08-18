@@ -21,18 +21,34 @@ export default async function SessionErrorPage() {
             Could not load your account
           </h1>
           <p className="mt-2 text-sm text-muted">
-            You are signed in to Supabase Auth, but the app database is
-            unavailable. This usually means{" "}
-            <code className="rounded bg-muted px-1">DATABASE_URL</code> on
-            Vercel points to localhost or migrations have not been run.
+            You are signed in to Supabase Auth, but Postgres rejected the
+            connection. The database password in DATABASE_URL / DIRECT_URL is
+            usually wrong, or migrations have not been run.
           </p>
         </div>
 
-        <ul className="mb-6 space-y-2 text-sm text-muted">
-          <li>Use the Supabase Postgres pooler URL for DATABASE_URL.</li>
-          <li>Use the direct Postgres URL for DIRECT_URL.</li>
-          <li>Run npx prisma migrate deploy against production.</li>
-        </ul>
+        <ol className="mb-6 list-decimal space-y-2 pl-5 text-sm text-muted">
+          <li>
+            Supabase → <strong>Settings → Database</strong> → reset or copy the
+            database password.
+          </li>
+          <li>
+            Copy <strong>Transaction pooler</strong> URL into{" "}
+            <code className="rounded bg-muted px-1">DATABASE_URL</code> (port
+            6543, with <code className="rounded bg-muted px-1">pgbouncer=true</code>
+            ).
+          </li>
+          <li>
+            Copy <strong>Session pooler</strong> URL into{" "}
+            <code className="rounded bg-muted px-1">DIRECT_URL</code> (port
+            5432).
+          </li>
+          <li>Paste both into Vercel env vars and redeploy.</li>
+          <li>
+            Run locally:{" "}
+            <code className="rounded bg-muted px-1">npx prisma migrate deploy</code>
+          </li>
+        </ol>
 
         <form action={logoutAction}>
           <button
