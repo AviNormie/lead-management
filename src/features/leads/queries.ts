@@ -134,6 +134,10 @@ export async function getLeadLookups(organizationId: string) {
     where: { organizationId },
     orderBy: { name: "asc" },
   });
+  const products = await prisma.leadProduct.findMany({
+    where: { organizationId, isActive: true },
+    orderBy: { name: "asc" },
+  });
 
   if (sources.length === 0 || pipelines.length === 0) {
     await seedOrganizationLeadDefaults(prisma, organizationId);
@@ -151,7 +155,7 @@ export async function getLeadLookups(organizationId: string) {
   }
 
   const stages = pipelines.flatMap((p) => p.stages);
-  return { sources, pipelines, stages, members, teams, tags };
+  return { sources, pipelines, stages, members, teams, tags, products };
 }
 
 export const EMPTY_DASHBOARD_STATS = {
@@ -329,6 +333,7 @@ export async function getLeadDetail(tenant: TenantContext, id: string) {
     where: { id, ...leadVisibilityWhere(tenant) },
     include: {
       source: true,
+      product: true,
       stage: true,
       assignedUser: true,
       tags: { include: { tag: true } },

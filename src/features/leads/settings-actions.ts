@@ -15,6 +15,7 @@ function slugCode(name: string) {
 
 function revalidateSettings() {
   revalidatePath("/settings/lead-sources");
+  revalidatePath("/settings/lead-products");
   revalidatePath("/settings/pipelines");
   revalidatePath("/leads");
 }
@@ -212,6 +213,63 @@ export async function updatePipelineStageAction(formData: FormData): Promise<voi
         isWon: formData.get("isWon") === "true",
         isLost: formData.get("isLost") === "true",
       },
+    });
+    revalidateSettings();
+  } catch (error) {
+    if (!isAppError(error)) console.error(error);
+  }
+}
+
+export async function createLeadProductAction(formData: FormData): Promise<void> {
+  try {
+    const tenant = await requirePermission("lead.manage_products");
+    const name = String(formData.get("name") ?? "").trim();
+    if (!name) return;
+    const code = slugCode(String(formData.get("code") ?? name));
+    await prisma.leadProduct.create({
+      data: {
+        organizationId: tenant.organizationId,
+        name,
+        code,
+        isActive: true,
+      },
+    });
+    revalidateSettings();
+  } catch (error) {
+    if (!isAppError(error)) console.error(error);
+  }
+}
+
+export async function updateLeadProductAction(formData: FormData): Promise<void> {
+  try {
+    const tenant = await requirePermission("lead.manage_products");
+    const id = String(formData.get("id") ?? "");
+    const name = String(formData.get("name") ?? "").trim();
+    const product = await prisma.leadProduct.findFirst({
+      where: { id, organizationId: tenant.organizationId },
+    });
+    if (!product) return;
+    await prisma.leadProduct.update({
+      where: { id },
+      data: { name: name || product.name },
+    });
+    revalidateSettings();
+  } catch (error) {
+    if (!isAppError(error)) console.error(error);
+  }
+}
+
+export async function toggleLeadProductAction(formData: FormData): Promise<void> {
+  try {
+    const tenant = await requirePermission("lead.manage_products");
+    const id = String(formData.get("id") ?? "");
+    const product = await prisma.leadProduct.findFirst({
+      where: { id, organizationId: tenant.organizationId },
+    });
+    if (!product) return;
+    await prisma.leadProduct.update({
+      where: { id },
+      data: { isActive: !product.isActive },
     });
     revalidateSettings();
   } catch (error) {

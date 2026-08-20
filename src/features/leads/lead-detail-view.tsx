@@ -61,6 +61,7 @@ type LeadDetail = {
   phone: string | null;
   whatsappNumber: string | null;
   website: string | null;
+  gstNo: string | null;
   address: string | null;
   city: string | null;
   state: string | null;
@@ -77,6 +78,7 @@ type LeadDetail = {
   lostReason: string | null;
   convertedAt: string | null;
   source: { name: string } | null;
+  product: { name: string } | null;
   stage: { name: string } | null;
   assignedUser: { name: string | null; email: string } | null;
   tags: { tag: { name: string } }[];
@@ -258,8 +260,13 @@ export function LeadDetailView({
               <p><span className="text-muted">Email:</span> {lead.email ?? "—"}</p>
               <p><span className="text-muted">Phone:</span> {lead.phone ?? "—"}</p>
               <p><span className="text-muted">WhatsApp:</span> {lead.whatsappNumber ?? "—"}</p>
+              <p><span className="text-muted">GST No:</span> {lead.gstNo ?? "—"}</p>
               <p><span className="text-muted">Website:</span> {lead.website ?? "—"}</p>
               <p><span className="text-muted">Source:</span> {lead.source?.name ?? "—"}</p>
+              <p>
+                <span className="text-muted">Interested in:</span>{" "}
+                {lead.product?.name ?? "—"}
+              </p>
               <p>
                 <span className="text-muted">Address:</span>{" "}
                 {[lead.address, lead.city, lead.state, lead.postalCode, lead.country]

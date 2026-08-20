@@ -42,6 +42,7 @@ function leadPayload(formData: FormData) {
     alternatePhone: formString(formData, "alternatePhone"),
     whatsappNumber: formString(formData, "whatsappNumber"),
     website: formString(formData, "website"),
+    gstNo: formString(formData, "gstNo"),
     jobTitle: formString(formData, "jobTitle"),
     address: formString(formData, "address"),
     city: formString(formData, "city"),
@@ -51,7 +52,7 @@ function leadPayload(formData: FormData) {
     industry: formString(formData, "industry"),
     companySize: formString(formData, "companySize"),
     requirement: formString(formData, "requirement"),
-    productInterest: formString(formData, "productInterest"),
+    productId: formString(formData, "productId") ?? "",
     expectedValue: formString(formData, "expectedValue")
       ? Number(formData.get("expectedValue"))
       : undefined,
@@ -92,6 +93,22 @@ async function resolvePipeline(
   return def?.id;
 }
 
+async function resolveProductFields(
+  organizationId: string,
+  productId?: string,
+) {
+  if (!productId) {
+    return { productId: null as string | null, productInterest: null as string | null };
+  }
+  const product = await prisma.leadProduct.findFirst({
+    where: { id: productId, organizationId },
+  });
+  if (!product) {
+    return { productId: null, productInterest: null };
+  }
+  return { productId: product.id, productInterest: product.name };
+}
+
 export async function createLeadAction(
   _prev: LeadActionResult | null,
   formData: FormData,
@@ -122,6 +139,10 @@ export async function createLeadAction(
       data.pipelineId,
     );
     const fullName = computeFullName(data);
+    const productFields = await resolveProductFields(
+      tenant.organizationId,
+      data.productId,
+    );
 
     const lead = await prisma.lead.create({
       data: {
@@ -135,6 +156,7 @@ export async function createLeadAction(
         alternatePhone: data.alternatePhone,
         whatsappNumber: data.whatsappNumber,
         website: data.website || null,
+        gstNo: data.gstNo || null,
         address: data.address || null,
         city: data.city || null,
         state: data.state || null,
@@ -144,7 +166,8 @@ export async function createLeadAction(
         jobTitle: data.jobTitle,
         companySize: data.companySize,
         requirement: data.requirement,
-        productInterest: data.productInterest,
+        productId: productFields.productId,
+        productInterest: productFields.productInterest,
         expectedValue: data.expectedValue,
         budget: data.budget,
         purchaseTimeline: data.purchaseTimeline,
@@ -237,6 +260,10 @@ export async function updateLeadAction(
       data.stageId,
       data.pipelineId,
     );
+    const productFields = await resolveProductFields(
+      tenant.organizationId,
+      data.productId,
+    );
 
     await prisma.lead.update({
       where: { id: leadId },
@@ -250,6 +277,7 @@ export async function updateLeadAction(
         alternatePhone: data.alternatePhone,
         whatsappNumber: data.whatsappNumber,
         website: data.website || null,
+        gstNo: data.gstNo || null,
         address: data.address || null,
         city: data.city || null,
         state: data.state || null,
@@ -259,7 +287,8 @@ export async function updateLeadAction(
         jobTitle: data.jobTitle,
         companySize: data.companySize,
         requirement: data.requirement,
-        productInterest: data.productInterest,
+        productId: productFields.productId,
+        productInterest: productFields.productInterest,
         expectedValue: data.expectedValue,
         budget: data.budget,
         purchaseTimeline: data.purchaseTimeline,

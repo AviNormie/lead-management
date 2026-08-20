@@ -68,6 +68,7 @@ model Organization {
   auditLogs     AuditLog[]
   notifications Notification[]
   leadSources   LeadSource[]
+  leadProducts  LeadProduct[]
   pipelines     Pipeline[]
   leadStages    LeadStage[]
   leads         Lead[]
@@ -295,6 +296,23 @@ model LeadSource {
   @@map("lead_sources")
 }
 
+model LeadProduct {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leads        Lead[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("lead_products")
+}
+
 model Pipeline {
   id             String   @id @default(cuid())
   organizationId String
@@ -346,6 +364,7 @@ model Lead {
   alternatePhone   String?
   whatsappNumber   String?
   website          String?
+  gstNo            String?
   address          String?
   city             String?
   state            String?
@@ -356,6 +375,7 @@ model Lead {
   companySize      String?
   requirement      String?
   productInterest  String?
+  productId        String?
   expectedValue    Decimal?     @db.Decimal(12, 2)
   budget           String?
   purchaseTimeline String?
@@ -380,6 +400,7 @@ model Lead {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   source       LeadSource?  @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  product      LeadProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
   pipeline     Pipeline?    @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
   stage        LeadStage?   @relation(fields: [stageId], references: [id], onDelete: SetNull)
   assignedUser User?        @relation("LeadAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
@@ -395,6 +416,7 @@ model Lead {
   @@index([organizationId, status])
   @@index([organizationId, stageId])
   @@index([organizationId, sourceId])
+  @@index([organizationId, productId])
   @@index([organizationId, assignedUserId])
   @@index([organizationId, createdAt])
   @@index([organizationId, nextFollowUpAt])

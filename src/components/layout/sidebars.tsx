@@ -17,6 +17,7 @@ import {
   GitBranch,
   Radio,
   Upload,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logoutAction } from "@/features/auth/actions";
@@ -119,6 +120,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/settings/pipelines", label: "Pipelines", icon: GitBranch },
       { href: "/settings/lead-sources", label: "Lead sources", icon: Radio },
+      { href: "/settings/lead-products", label: "Products", icon: Package },
       {
         href: "/settings/organization",
         label: "Organization",

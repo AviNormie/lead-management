@@ -17,11 +17,19 @@ export default async function EditLeadPage({
   const [lead, lookups] = await Promise.all([
     prisma.lead.findFirst({
       where: { id, ...leadVisibilityWhere(tenant) },
-      include: { tags: { include: { tag: true } } },
+      include: {
+        tags: { include: { tag: true } },
+        product: true,
+      },
     }),
     getLeadLookups(tenant.organizationId),
   ]);
   if (!lead) notFound();
+
+  const products =
+    lead.product && !lookups.products.some((p) => p.id === lead.product!.id)
+      ? [...lookups.products, { id: lead.product.id, name: lead.product.name }]
+      : lookups.products;
 
   return (
     <div>
@@ -32,7 +40,7 @@ export default async function EditLeadPage({
       <Card>
         <CardContent className="pt-5">
           <LeadForm
-            lookups={lookups}
+            lookups={{ ...lookups, products }}
             lead={lead}
             tagNames={lead.tags.map((row) => row.tag.name).join(", ")}
           />

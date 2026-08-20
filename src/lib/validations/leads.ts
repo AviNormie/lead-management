@@ -60,6 +60,19 @@ const optionalWebsite = z
     }
   }, "Enter a valid website URL");
 
+const optionalGstNo = z
+  .string()
+  .trim()
+  .max(15)
+  .optional()
+  .or(z.literal(""))
+  .refine(
+    (val) =>
+      !val ||
+      /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i.test(val),
+    "Enter a valid 15-character GST number",
+  );
+
 const optionalScore = z.preprocess(
   (val) => (val === "" || val == null ? undefined : val),
   z.coerce
@@ -91,6 +104,7 @@ export const leadFormSchema = z.object({
   alternatePhone: optionalPhone,
   whatsappNumber: optionalPhone,
   website: optionalWebsite,
+  gstNo: optionalGstNo,
   jobTitle: optionalText(80),
   address: optionalText(300),
   city: optionalText(80),
@@ -100,7 +114,7 @@ export const leadFormSchema = z.object({
   industry: optionalText(80),
   companySize: optionalText(40),
   requirement: optionalText(2000),
-  productInterest: optionalText(200),
+  productId: z.string().optional().or(z.literal("")),
   expectedValue: optionalMoney,
   budget: optionalText(80),
   purchaseTimeline: optionalText(80),

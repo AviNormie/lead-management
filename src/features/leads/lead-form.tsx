@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Lead, LeadPriority } from "@prisma/client";
 import { toast } from "sonner";
@@ -32,6 +32,7 @@ type Lookup = {
   members: { user: { id: string; name: string | null; email: string } }[];
   teams?: { id: string; name: string }[];
   tags?: { id: string; name: string }[];
+  products: { id: string; name: string }[];
 };
 
 type FormValues = z.infer<typeof leadFormSchema>;
@@ -65,7 +66,7 @@ export function LeadForm({
   const addAnotherRef = useRef(false);
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(leadFormSchema),
+    resolver: zodResolver(leadFormSchema) as Resolver<FormValues>,
     mode: "onTouched",
     reValidateMode: "onChange",
     defaultValues: {
@@ -77,6 +78,7 @@ export function LeadForm({
       alternatePhone: lead?.alternatePhone ?? "",
       whatsappNumber: lead?.whatsappNumber ?? "",
       website: lead?.website ?? "",
+      gstNo: lead?.gstNo ?? "",
       jobTitle: lead?.jobTitle ?? "",
       address: lead?.address ?? "",
       city: lead?.city ?? "",
@@ -86,7 +88,7 @@ export function LeadForm({
       industry: lead?.industry ?? "",
       companySize: lead?.companySize ?? "",
       requirement: lead?.requirement ?? "",
-      productInterest: lead?.productInterest ?? "",
+      productId: lead?.productId ?? "",
       expectedValue: lead?.expectedValue ? Number(lead.expectedValue) : undefined,
       budget: lead?.budget ?? "",
       purchaseTimeline: lead?.purchaseTimeline ?? "",
@@ -193,6 +195,15 @@ export function LeadForm({
           <Field id="company" label="Company" error={errors.company?.message}>
             <Input id="company" autoComplete="organization" {...register("company")} />
           </Field>
+          <Field id="gstNo" label="GST No" error={errors.gstNo?.message}>
+            <Input
+              id="gstNo"
+              placeholder="22AAAAA0000A1Z5"
+              className={invalidClass(!!errors.gstNo)}
+              aria-invalid={!!errors.gstNo}
+              {...register("gstNo")}
+            />
+          </Field>
           <Field id="jobTitle" label="Job title" error={errors.jobTitle?.message}>
             <Input id="jobTitle" autoComplete="organization-title" {...register("jobTitle")} />
           </Field>
@@ -254,7 +265,14 @@ export function LeadForm({
         <section className="grid gap-4 sm:grid-cols-2">
           <h2 className="sm:col-span-2 text-sm font-semibold">Address</h2>
           <Field id="address" label="Address" className="sm:col-span-2" error={errors.address?.message}>
-            <Input id="address" autoComplete="street-address" {...register("address")} />
+            <Textarea
+              id="address"
+              rows={2}
+              autoComplete="street-address"
+              className={invalidClass(!!errors.address)}
+              aria-invalid={!!errors.address}
+              {...register("address")}
+            />
           </Field>
           <Field id="city" label="City" error={errors.city?.message}>
             <Input id="city" autoComplete="address-level2" {...register("city")} />
@@ -278,8 +296,15 @@ export function LeadForm({
           <Field id="companySize" label="Company size" error={errors.companySize?.message}>
             <Input id="companySize" {...register("companySize")} />
           </Field>
-          <Field id="productInterest" label="Product interest" error={errors.productInterest?.message}>
-            <Input id="productInterest" {...register("productInterest")} />
+          <Field id="productId" label="Interested in" error={errors.productId?.message}>
+            <Select id="productId" {...register("productId")}>
+              <option value="">Select product</option>
+              {lookups.products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
           </Field>
           <Field id="budget" label="Budget" error={errors.budget?.message}>
             <Input id="budget" {...register("budget")} />
