@@ -22,6 +22,11 @@ describe("lead tenant isolation and duplicates (db)", () => {
     orgIds.push(org.id);
     await seedOrganizationLeadDefaults(prisma, org.id);
 
+    const stages = await prisma.leadStage.findMany({
+      where: { organizationId: org.id },
+    });
+    expect(stages.map((s) => s.name)).toContain("Negotiation");
+
     const source = await prisma.leadSource.findFirst({
       where: { organizationId: org.id, code: "manual" },
     });

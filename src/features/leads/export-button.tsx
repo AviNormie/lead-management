@@ -4,9 +4,13 @@ import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { exportLeadsCsvAction } from "@/features/leads/import-actions";
 
-export function ExportLeadsButton() {
+export function ExportLeadsButton({
+  filters = {},
+}: {
+  filters?: Record<string, string>;
+}) {
   async function onExport() {
-    const csv = await exportLeadsCsvAction();
+    const csv = await exportLeadsCsvAction(filters);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

@@ -1,7 +1,8 @@
+import { cache } from "react";
 import { hasSupabasePublicEnv } from "@/lib/config/env";
 import { createClient } from "@/lib/supabase/server";
 
-export async function getSupabaseAuthUser() {
+async function loadSupabaseAuthUser() {
   if (!hasSupabasePublicEnv()) {
     return null;
   }
@@ -17,3 +18,6 @@ export async function getSupabaseAuthUser() {
     return null;
   }
 }
+
+/** Request-scoped so layout + tenant share one getUser() call. */
+export const getSupabaseAuthUser = cache(loadSupabaseAuthUser);

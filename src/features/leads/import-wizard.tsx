@@ -12,9 +12,18 @@ const TARGETS = [
   { key: "company", label: "Company" },
   { key: "email", label: "Email" },
   { key: "phone", label: "Phone" },
+  { key: "alternatePhone", label: "Alternate phone" },
   { key: "whatsappNumber", label: "WhatsApp" },
+  { key: "website", label: "Website" },
+  { key: "jobTitle", label: "Job title" },
+  { key: "address", label: "Address" },
   { key: "city", label: "City" },
+  { key: "state", label: "State" },
+  { key: "country", label: "Country" },
+  { key: "postalCode", label: "Postal code" },
+  { key: "industry", label: "Industry" },
   { key: "sourceCode", label: "Source code" },
+  { key: "description", label: "Description" },
 ] as const;
 
 export function ImportWizard() {

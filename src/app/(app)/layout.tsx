@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSupabaseAuthUser } from "@/lib/auth/supabase-user";
 import { isAppConfigured } from "@/lib/config/env";
-import { getSessionContext } from "@/lib/tenant";
-import { prisma } from "@/lib/db/prisma";
+import { getSessionContext, requireOrganizationAccess } from "@/lib/tenant";
 import { AppShell } from "@/components/layout/app-shell";
 
 export const dynamic = "force-dynamic";
@@ -29,25 +28,12 @@ export default async function AppLayout({
   }
 
   try {
-    const organization = await prisma.organization.findUnique({
-      where: { id: session.activeOrganizationId },
-      select: { name: true, slug: true },
-    });
-    const membership = await prisma.organizationMember.findUnique({
-      where: {
-        organizationId_userId: {
-          organizationId: session.activeOrganizationId,
-          userId: session.userId,
-        },
-      },
-      include: { role: { select: { name: true } } },
-    });
-
+    const tenant = await requireOrganizationAccess();
     return (
       <AppShell
-        userName={session.name ?? session.email ?? "User"}
-        roleName={membership?.role.name ?? "Member"}
-        organizationName={organization?.name ?? "Organization"}
+        userName={tenant.userName ?? tenant.userEmail ?? "User"}
+        roleName={tenant.roleName}
+        organizationName={tenant.organizationName}
       >
         {children}
       </AppShell>

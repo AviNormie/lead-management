@@ -19,6 +19,8 @@ describe("permission catalog", () => {
     expect(codes.has("member.invite")).toBe(true);
     expect(codes.has("dashboard.view")).toBe(true);
     expect(codes.has("lead.create")).toBe(true);
+    expect(codes.has("lead.view_all")).toBe(true);
+    expect(codes.has("lead.manage_custom_fields")).toBe(true);
   });
 
   it("defines owner and viewer system roles", () => {

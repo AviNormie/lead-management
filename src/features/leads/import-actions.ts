@@ -7,6 +7,7 @@ import { computeFullName } from "@/lib/validations/leads";
 import { findDuplicateLeads } from "@/lib/leads/duplicates";
 import { recordActivity } from "@/lib/leads/activity";
 import Papa from "papaparse";
+import { leadListWhere, parseLeadListQuery } from "@/features/leads/queries";
 
 const FIELD_KEYS = [
   "firstName",
@@ -14,9 +15,18 @@ const FIELD_KEYS = [
   "company",
   "email",
   "phone",
+  "alternatePhone",
   "whatsappNumber",
+  "website",
+  "jobTitle",
+  "address",
   "city",
+  "state",
+  "country",
+  "postalCode",
+  "industry",
   "sourceCode",
+  "description",
 ] as const;
 
 export type ImportSummary = {
@@ -89,11 +99,11 @@ export async function importLeadsCsvAction(
       const mapped = mapRow(parsed.data[i], mapping);
       const email = mapped.email?.toLowerCase() || undefined;
       const fullName = computeFullName(mapped);
-      if (!fullName || fullName === "Untitled lead") {
+      if (!mapped.firstName || !mapped.phone) {
         errors += 1;
         failedRows.push({
           row: i + 2,
-          reason: "Missing name/company/email",
+          reason: "First name and phone are required",
           data: mapped,
         });
         continue;
@@ -130,8 +140,17 @@ export async function importLeadsCsvAction(
             company: mapped.company,
             email,
             phone: mapped.phone,
+            alternatePhone: mapped.alternatePhone,
             whatsappNumber: mapped.whatsappNumber,
+            website: mapped.website,
+            jobTitle: mapped.jobTitle,
+            address: mapped.address,
             city: mapped.city,
+            state: mapped.state,
+            country: mapped.country,
+            postalCode: mapped.postalCode,
+            industry: mapped.industry,
+            description: mapped.description,
             sourceId,
             pipelineId: defaultPipeline?.id,
             stageId: defaultStage?.id,
@@ -199,10 +218,11 @@ export async function importLeadsCsvAction(
   }
 }
 
-export async function exportLeadsCsvAction() {
+export async function exportLeadsCsvAction(filters: Record<string, string> = {}) {
   const tenant = await requirePermission("lead.export");
+  const parsed = parseLeadListQuery(filters);
   const leads = await prisma.lead.findMany({
-    where: { organizationId: tenant.organizationId, archivedAt: null },
+    where: leadListWhere(tenant, parsed),
     include: { source: true, stage: true, assignedUser: true },
     orderBy: { createdAt: "desc" },
     take: 5000,

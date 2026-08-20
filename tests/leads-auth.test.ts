@@ -16,6 +16,49 @@ describe("computeFullName", () => {
   });
 });
 
+describe("lead visibility", () => {
+  it("limits assigned-only users without lead.view_all", async () => {
+    const { leadVisibilityWhere } = await import("@/features/leads/scope");
+    const tenant = {
+      userId: "user-1",
+      organizationId: "org-1",
+      membershipId: "m-1",
+      roleId: "r-1",
+      isOwner: false,
+      permissions: new Set(["lead.view"]),
+      roleName: "Member",
+      organizationName: "Org",
+      organizationCurrency: "USD",
+      userName: null,
+      userEmail: null,
+    };
+    expect(leadVisibilityWhere(tenant)).toEqual({
+      organizationId: "org-1",
+      assignedUserId: "user-1",
+    });
+  });
+
+  it("owners and view_all see the whole organization", async () => {
+    const { leadVisibilityWhere } = await import("@/features/leads/scope");
+    const tenant = {
+      userId: "user-1",
+      organizationId: "org-1",
+      membershipId: "m-1",
+      roleId: "r-1",
+      isOwner: true,
+      permissions: new Set<string>(),
+      roleName: "Owner",
+      organizationName: "Org",
+      organizationCurrency: "USD",
+      userName: null,
+      userEmail: null,
+    };
+    expect(leadVisibilityWhere(tenant)).toEqual({
+      organizationId: "org-1",
+    });
+  });
+});
+
 describe("supabase key isolation", () => {
   it("does not use the service role key in the browser client", () => {
     const client = readFileSync(

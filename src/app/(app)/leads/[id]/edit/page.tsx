@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/tenant";
 import { prisma } from "@/lib/db/prisma";
+import { leadVisibilityWhere } from "@/features/leads/scope";
 import { getLeadLookups } from "@/features/leads/queries";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,7 +16,8 @@ export default async function EditLeadPage({
   const { id } = await params;
   const [lead, lookups] = await Promise.all([
     prisma.lead.findFirst({
-      where: { id, organizationId: tenant.organizationId },
+      where: { id, ...leadVisibilityWhere(tenant) },
+      include: { tags: { include: { tag: true } } },
     }),
     getLeadLookups(tenant.organizationId),
   ]);
@@ -29,7 +31,11 @@ export default async function EditLeadPage({
       />
       <Card>
         <CardContent className="pt-5">
-          <LeadForm lookups={lookups} lead={lead} />
+          <LeadForm
+            lookups={lookups}
+            lead={lead}
+            tagNames={lead.tags.map((row) => row.tag.name).join(", ")}
+          />
         </CardContent>
       </Card>
     </div>

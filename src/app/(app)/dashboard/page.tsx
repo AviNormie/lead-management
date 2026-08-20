@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { format } from "date-fns";
 import { Download } from "lucide-react";
 import { redirect } from "next/navigation";
@@ -6,21 +7,24 @@ import { requirePermission } from "@/lib/tenant";
 import { prisma } from "@/lib/db/prisma";
 import {
   EMPTY_DASHBOARD_STATS,
+  getLeadDashboardCharts,
   getLeadDashboardStats,
 } from "@/features/leads/queries";
+import { DashboardCharts } from "@/features/leads/dashboard-charts";
 import { isAppError } from "@/lib/errors";
 import { PageHeader } from "@/components/layout/page-header";
 import { KpiCard } from "@/components/layout/kpi-card";
-import { PerformanceChartCard } from "@/components/layout/performance-chart-card";
 import { PerformanceGaugeCard } from "@/components/layout/performance-gauge-card";
 import { DataTable } from "@/components/layout/data-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { perfTime } from "@/lib/perf";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export default async function DashboardPage() {
+  const pageTimer = perfTime("dashboard.page");
   let tenant;
   try {
     tenant = await requirePermission("dashboard.view");
@@ -35,8 +39,6 @@ export default async function DashboardPage() {
     redirect("/auth/session-error");
   }
 
-  let organizationName = "Organization";
-  let currency = "USD";
   let memberCount = 0;
   let stats = EMPTY_DASHBOARD_STATS;
   let recentLeads: {
@@ -47,28 +49,30 @@ export default async function DashboardPage() {
     value: string;
     createdAt: Date;
   }[] = [];
-  let userName: string | undefined;
 
+  const dataTimer = perfTime("dashboard.prisma");
   try {
-    const organization = await prisma.organization.findUnique({
-      where: { id: tenant.organizationId },
-      select: { name: true, currency: true },
-    });
-    organizationName = organization?.name ?? organizationName;
-    currency = organization?.currency ?? currency;
-
-    memberCount = await prisma.organizationMember.count({
-      where: { organizationId: tenant.organizationId, status: "ACTIVE" },
-    });
-
-    stats = await getLeadDashboardStats(tenant.organizationId, tenant.userId);
-
-    const leads = await prisma.lead.findMany({
-      where: { organizationId: tenant.organizationId, archivedAt: null },
-      include: { source: true, assignedUser: true },
-      orderBy: { createdAt: "desc" },
-      take: 8,
-    });
+    const [memberCountResult, statsResult, leads] = await Promise.all([
+      prisma.organizationMember.count({
+        where: { organizationId: tenant.organizationId, status: "ACTIVE" },
+      }),
+      getLeadDashboardStats(tenant.organizationId, tenant.userId),
+      prisma.lead.findMany({
+        where: { organizationId: tenant.organizationId, archivedAt: null },
+        select: {
+          id: true,
+          fullName: true,
+          expectedValue: true,
+          createdAt: true,
+          source: { select: { name: true } },
+          assignedUser: { select: { name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+      }),
+    ]);
+    memberCount = memberCountResult;
+    stats = statsResult;
     recentLeads = leads.map((lead) => ({
       id: lead.id,
       fullName: lead.fullName,
@@ -77,15 +81,10 @@ export default async function DashboardPage() {
       value: lead.expectedValue?.toString() ?? "—",
       createdAt: lead.createdAt,
     }));
-
-    const user = await prisma.user.findUnique({
-      where: { id: tenant.userId },
-      select: { name: true },
-    });
-    userName = user?.name ?? undefined;
   } catch (error) {
     console.error("Dashboard data failed", error);
   }
+  dataTimer.end();
 
   const today = format(new Date(), "dd MMM yyyy");
   const kpis = [
@@ -100,16 +99,18 @@ export default async function DashboardPage() {
     { label: "Lost leads", value: stats.lost },
     {
       label: "Pipeline value",
-      value: `${currency} ${stats.pipelineValue}`,
+      value: `${tenant.organizationCurrency} ${stats.pipelineValue}`,
     },
   ];
+
+  pageTimer.end();
 
   return (
     <div>
       <PageHeader
         breadcrumbs={["Overview", "Lead Management"]}
         title="Lead Management"
-        subtitle={`${today} · ${organizationName} · ${memberCount} members · Conversion ${stats.conversionRate}%`}
+        subtitle={`${today} · ${tenant.organizationName} · ${memberCount} members · Conversion ${stats.conversionRate}%`}
         actions={
           <Link href="/leads">
             <Button type="button" variant="secondary" size="sm">
@@ -134,13 +135,9 @@ export default async function DashboardPage() {
       </section>
 
       <section className="mb-6">
-        <PerformanceChartCard
-          emptyMessage={
-            stats.total === 0
-              ? "Performance trends will appear when lead activity is available."
-              : "Time-series charts use backend aggregations. Add more lead history to see a trend."
-          }
-        />
+        <Suspense fallback={<div className="ic-card h-[280px] animate-pulse bg-[var(--ic-surface-muted)]" />}>
+          <DashboardChartsLoader organizationId={tenant.organizationId} />
+        </Suspense>
       </section>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.6fr_0.9fr]">
@@ -177,7 +174,7 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
         <PerformanceGaugeCard
-          name={userName}
+          name={tenant.userName ?? undefined}
           pendingLabel="Pending follow-ups"
           pendingValue={String(stats.followUpsDue)}
           lostLabel="Lost leads"
@@ -185,5 +182,17 @@ export default async function DashboardPage() {
         />
       </section>
     </div>
+  );
+}
+
+async function DashboardChartsLoader({ organizationId }: { organizationId: string }) {
+  const charts = await getLeadDashboardCharts(organizationId);
+  return (
+    <DashboardCharts
+      bySource={charts.bySource}
+      byStage={charts.byStage}
+      overTime={charts.overTime}
+      byAssignee={charts.byAssignee}
+    />
   );
 }

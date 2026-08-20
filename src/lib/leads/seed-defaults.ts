@@ -24,8 +24,9 @@ export const DEFAULT_STAGES = [
   { name: "Contacted", sortOrder: 1, probability: 25, color: "#7C5CFF", isWon: false, isLost: false },
   { name: "Qualified", sortOrder: 2, probability: 50, color: "#2EC4B6", isWon: false, isLost: false },
   { name: "Proposal", sortOrder: 3, probability: 70, color: "#FF8A3D", isWon: false, isLost: false },
-  { name: "Won", sortOrder: 4, probability: 100, color: "#16A34A", isWon: true, isLost: false },
-  { name: "Lost", sortOrder: 5, probability: 0, color: "#EF4444", isWon: false, isLost: true },
+  { name: "Negotiation", sortOrder: 4, probability: 85, color: "#F5C542", isWon: false, isLost: false },
+  { name: "Won", sortOrder: 5, probability: 100, color: "#16A34A", isWon: true, isLost: false },
+  { name: "Lost", sortOrder: 6, probability: 0, color: "#EF4444", isWon: false, isLost: true },
 ] as const;
 
 export async function seedOrganizationLeadDefaults(

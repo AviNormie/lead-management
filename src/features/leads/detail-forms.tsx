@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LeadStatus } from "@prisma/client";
+import { logActivityAction } from "@/features/leads/workflow-actions";
 
 const initial: ActionResult | null = null;
 
@@ -87,6 +88,7 @@ export function FollowUpForm({ leadId }: { leadId: string }) {
           <option value="EMAIL">Email</option>
           <option value="WHATSAPP">WhatsApp</option>
           <option value="TASK">Task</option>
+          <option value="OTHER">Other</option>
         </select>
       </div>
       <div>
@@ -182,15 +184,58 @@ export function StageAssignControls({
           </Button>
         </form>
       ) : null}
-      <form
-        action={async () => {
-          await changeLeadStatusAction(leadId, LeadStatus.LOST, "Marked lost");
-        }}
-      >
-        <Button type="submit" size="sm" variant="secondary">
-          Mark lost
-        </Button>
-      </form>
     </div>
+  );
+}
+
+export function LogActivityForm({ leadId }: { leadId: string }) {
+  const [state, action, pending] = useActionState(logActivityAction, initial);
+  return (
+    <form action={action} className="grid gap-2 sm:grid-cols-2">
+      <input type="hidden" name="leadId" value={leadId} />
+      <div>
+        <Label htmlFor="kind">Type</Label>
+        <select
+          id="kind"
+          name="kind"
+          className="flex h-10 w-full rounded-xl border border-[var(--ic-border)] px-3 text-sm"
+          defaultValue="CALL"
+        >
+          <option value="CALL">Call</option>
+          <option value="EMAIL">Email</option>
+          <option value="MEETING">Meeting</option>
+          <option value="WHATSAPP">WhatsApp</option>
+        </select>
+      </div>
+      <div>
+        <Label htmlFor="occurredAt">When</Label>
+        <Input id="occurredAt" name="occurredAt" type="datetime-local" />
+      </div>
+      <div>
+        <Label htmlFor="duration">Duration</Label>
+        <Input id="duration" name="duration" placeholder="15 min" />
+      </div>
+      <div>
+        <Label htmlFor="subject">Subject / title</Label>
+        <Input id="subject" name="subject" />
+      </div>
+      <div className="sm:col-span-2">
+        <Label htmlFor="notes">Notes</Label>
+        <textarea
+          id="notes"
+          name="notes"
+          rows={3}
+          className="w-full rounded-xl border border-[var(--ic-border)] px-3 py-2 text-sm"
+        />
+      </div>
+      {state && !state.ok ? (
+        <p className="sm:col-span-2 text-sm text-danger">{state.error}</p>
+      ) : null}
+      <div className="sm:col-span-2">
+        <Button type="submit" size="sm" disabled={pending}>
+          {pending ? "Saving…" : "Log activity"}
+        </Button>
+      </div>
+    </form>
   );
 }

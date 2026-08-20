@@ -5,6 +5,7 @@ import { Menu, X } from "lucide-react";
 import { ModuleRail, AppSidebar } from "@/components/layout/sidebars";
 import { AppHeader } from "@/components/layout/app-header";
 import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 
 export function AppShell({
@@ -79,6 +80,7 @@ export function AppShell({
         <AppHeader placeholder="Search leads, people, settings…" />
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </main>
+      <Toaster />
     </div>
   );
 }

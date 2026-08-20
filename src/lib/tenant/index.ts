@@ -1,9 +1,11 @@
+import { cache } from "react";
 import { MemberStatus } from "@prisma/client";
 import { hasSupabasePublicEnv } from "@/lib/config/env";
-import { createClient } from "@/lib/supabase/server";
+import { getSupabaseAuthUser } from "@/lib/auth/supabase-user";
 import { prisma } from "@/lib/db/prisma";
 import { AppError } from "@/lib/errors";
 import { ensurePrismaUser } from "@/lib/auth/ensure-user";
+import { perfTime } from "@/lib/perf";
 
 export { assertSameOrganization } from "@/lib/tenant/assert";
 
@@ -20,25 +22,32 @@ export type TenantContext = {
   organizationId: string;
   membershipId: string;
   roleId: string;
+  roleName: string;
   isOwner: boolean;
   permissions: Set<string>;
+  organizationName: string;
+  organizationCurrency: string;
+  userName: string | null;
+  userEmail: string | null;
 };
 
-export async function getSessionContext(): Promise<SessionContext | null> {
+async function loadSessionContext(): Promise<SessionContext | null> {
   if (!hasSupabasePublicEnv()) {
     return null;
   }
 
+  const authTimer = perfTime("auth.getUser+ensureUser");
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = await getSupabaseAuthUser();
     if (!user) {
+      authTimer.end();
       return null;
     }
 
     const dbUser = await ensurePrismaUser(user);
+    authTimer.end();
+
+    const membershipTimer = perfTime("prisma.sessionMembership");
     const membership = dbUser.activeOrganizationId
       ? await prisma.organizationMember.findUnique({
           where: {
@@ -52,6 +61,7 @@ export async function getSessionContext(): Promise<SessionContext | null> {
           where: { userId: dbUser.id, status: MemberStatus.ACTIVE },
           orderBy: { joinedAt: "asc" },
         });
+    membershipTimer.end();
 
     if (
       membership &&
@@ -71,10 +81,14 @@ export async function getSessionContext(): Promise<SessionContext | null> {
       membershipId: membership?.id ?? null,
     };
   } catch (error) {
+    authTimer.end();
     console.error("getSessionContext failed", error);
     return null;
   }
 }
+
+/** Request-scoped: layout and pages share one auth + user lookup. */
+export const getSessionContext = cache(loadSessionContext);
 
 export async function requireAuth(): Promise<SessionContext> {
   const ctx = await getSessionContext();
@@ -84,7 +98,7 @@ export async function requireAuth(): Promise<SessionContext> {
   return ctx;
 }
 
-export async function requireOrganizationAccess(
+async function loadOrganizationAccess(
   organizationId?: string,
 ): Promise<TenantContext> {
   const session = await requireAuth();
@@ -98,6 +112,7 @@ export async function requireOrganizationAccess(
     );
   }
 
+  const timer = perfTime("prisma.membership+role+org");
   const membership = await prisma.organizationMember.findUnique({
     where: {
       organizationId_userId: {
@@ -106,15 +121,17 @@ export async function requireOrganizationAccess(
       },
     },
     include: {
+      organization: { select: { name: true, currency: true } },
       role: {
         include: {
           permissions: {
-            include: { permission: true },
+            include: { permission: { select: { code: true } } },
           },
         },
       },
     },
   });
+  timer.end();
 
   if (!membership || membership.status !== MemberStatus.ACTIVE) {
     throw new AppError(
@@ -133,10 +150,18 @@ export async function requireOrganizationAccess(
     organizationId: membership.organizationId,
     membershipId: membership.id,
     roleId: membership.roleId,
+    roleName: membership.role.name,
     isOwner: membership.isOwner,
     permissions,
+    organizationName: membership.organization.name,
+    organizationCurrency: membership.organization.currency,
+    userName: session.name ?? null,
+    userEmail: session.email ?? null,
   };
 }
+
+/** Request-scoped tenant + RBAC. Pages should call this (or requirePermission), not getUser again. */
+export const requireOrganizationAccess = cache(loadOrganizationAccess);
 
 export async function getCurrentOrganization() {
   const tenant = await requireOrganizationAccess();
@@ -167,5 +192,5 @@ export function hasPermission(
   tenant: TenantContext,
   permissionCode: string,
 ): boolean {
-  return tenant.permissions.has(permissionCode);
+  return tenant.isOwner || tenant.permissions.has(permissionCode);
 }

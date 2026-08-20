@@ -42,6 +42,11 @@ export const PERMISSIONS: PermissionSeed[] = [
   { code: "lead.change_stage", name: "Change lead stage", module: "lead" },
   { code: "lead.manage_pipeline", name: "Manage pipelines", module: "lead" },
   { code: "lead.manage_sources", name: "Manage lead sources", module: "lead" },
+  {
+    code: "lead.manage_custom_fields",
+    name: "Manage custom fields",
+    module: "lead",
+  },
 
   // Integrations (seeded for later phases)
   { code: "integration.view", name: "View integrations", module: "integration" },
@@ -110,6 +115,7 @@ export const SYSTEM_ROLE_TEMPLATES: SystemRoleTemplate[] = [
       "lead.change_stage",
       "lead.manage_pipeline",
       "lead.manage_sources",
+      "lead.manage_custom_fields",
       "integration.view",
       "integration.connect",
       "integration.disconnect",
@@ -198,6 +204,7 @@ export const SYSTEM_ROLE_TEMPLATES: SystemRoleTemplate[] = [
       "lead.change_stage",
       "lead.manage_pipeline",
       "lead.manage_sources",
+      "lead.manage_custom_fields",
     ],
   },
   {

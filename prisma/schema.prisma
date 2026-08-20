@@ -274,6 +274,7 @@ enum FollowUpType {
   EMAIL
   WHATSAPP
   TASK
+  OTHER
 }
 
 model LeadSource {
@@ -299,6 +300,7 @@ model Pipeline {
   organizationId String
   name           String
   isDefault      Boolean  @default(false)
+  isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -344,9 +346,11 @@ model Lead {
   alternatePhone   String?
   whatsappNumber   String?
   website          String?
+  address          String?
   city             String?
   state            String?
   country          String?
+  postalCode       String?
   industry         String?
   jobTitle         String?
   companySize      String?

@@ -117,8 +117,8 @@ const navGroups: NavGroup[] = [
   {
     title: "MY ORGANIZATION",
     items: [
-      { href: "/pipelines", label: "Pipelines", icon: GitBranch },
-      { href: "/lead-sources", label: "Lead sources", icon: Radio },
+      { href: "/settings/pipelines", label: "Pipelines", icon: GitBranch },
+      { href: "/settings/lead-sources", label: "Lead sources", icon: Radio },
       {
         href: "/settings/organization",
         label: "Organization",

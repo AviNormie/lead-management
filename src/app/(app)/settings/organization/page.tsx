@@ -1,7 +1,6 @@
 import {
   getCurrentOrganization,
   hasPermission,
-  requireOrganizationAccess,
 } from "@/lib/tenant";
 import { OrganizationSettingsForm } from "@/features/organizations/organization-settings-form";
 import { PageHeader } from "@/components/layout/page-header";
@@ -10,7 +9,6 @@ import { Badge } from "@/components/ui/badge";
 
 export default async function OrganizationSettingsPage() {
   const { organization, tenant } = await getCurrentOrganization();
-  await requireOrganizationAccess();
   const canUpdate = hasPermission(tenant, "org.update");
 
   return (

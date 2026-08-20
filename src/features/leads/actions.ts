@@ -1,14 +1,22 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { LeadPriority, LeadStatus } from "@prisma/client";
+import { LeadPriority, LeadStatus, type Prisma } from "@prisma/client";
+import { ZodError } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { requirePermission } from "@/lib/tenant";
 import { isAppError } from "@/lib/errors";
-import type { ActionResult } from "@/features/auth/actions";
-import { computeFullName, leadFormSchema } from "@/lib/validations/leads";
+import type { ActionResult } from "@/features/auth/types";
+import {
+  computeFullName,
+  leadFormSchema,
+  parseTagNames,
+} from "@/lib/validations/leads";
 import { findDuplicateLeads, type DuplicateMatch } from "@/lib/leads/duplicates";
 import { recordActivity } from "@/lib/leads/activity";
+import { syncLeadTags } from "@/lib/leads/tags";
+import { LOST_REASONS } from "@/lib/leads/lost-reasons";
+import { leadVisibilityWhere } from "@/features/leads/scope";
 
 export type LeadActionResult =
   | { ok: true; message?: string; leadId?: string }
@@ -34,11 +42,13 @@ function leadPayload(formData: FormData) {
     alternatePhone: formString(formData, "alternatePhone"),
     whatsappNumber: formString(formData, "whatsappNumber"),
     website: formString(formData, "website"),
+    jobTitle: formString(formData, "jobTitle"),
+    address: formString(formData, "address"),
     city: formString(formData, "city"),
     state: formString(formData, "state"),
     country: formString(formData, "country"),
+    postalCode: formString(formData, "postalCode"),
     industry: formString(formData, "industry"),
-    jobTitle: formString(formData, "jobTitle"),
     companySize: formString(formData, "companySize"),
     requirement: formString(formData, "requirement"),
     productInterest: formString(formData, "productInterest"),
@@ -54,8 +64,12 @@ function leadPayload(formData: FormData) {
     stageId: formString(formData, "stageId"),
     pipelineId: formString(formData, "pipelineId"),
     priority: formString(formData, "priority"),
+    leadScore: formString(formData, "leadScore"),
     assignedUserId: formString(formData, "assignedUserId") ?? "",
+    assignedTeamId: formString(formData, "assignedTeamId") ?? "",
+    tags: formString(formData, "tags") ?? "",
     description: formString(formData, "description"),
+    initialNote: formString(formData, "initialNote"),
     forceCreate: formData.get("forceCreate") === "true",
   });
 }
@@ -120,10 +134,12 @@ export async function createLeadAction(
         phone: data.phone,
         alternatePhone: data.alternatePhone,
         whatsappNumber: data.whatsappNumber,
-        website: data.website,
-        city: data.city,
-        state: data.state,
-        country: data.country,
+        website: data.website || null,
+        address: data.address || null,
+        city: data.city || null,
+        state: data.state || null,
+        country: data.country || null,
+        postalCode: data.postalCode || null,
         industry: data.industry,
         jobTitle: data.jobTitle,
         companySize: data.companySize,
@@ -136,11 +152,13 @@ export async function createLeadAction(
         sourceDetail: data.sourceDetail,
         campaign: data.campaign,
         status: data.status ?? LeadStatus.NEW,
-        stageId: data.stageId,
+        stageId: data.stageId || null,
         pipelineId,
+        leadScore: data.leadScore ?? 0,
         priority: data.priority ?? LeadPriority.MEDIUM,
         assignedUserId: data.assignedUserId || null,
-        description: data.description,
+        assignedTeamId: data.assignedTeamId || null,
+        description: data.description || null,
       },
     });
 
@@ -163,10 +181,32 @@ export async function createLeadAction(
       });
     }
 
+    await syncLeadTags(tenant.organizationId, lead.id, data.tags);
+    if (data.initialNote) {
+      await prisma.leadNote.create({
+        data: {
+          organizationId: tenant.organizationId,
+          leadId: lead.id,
+          authorId: tenant.userId,
+          content: data.initialNote,
+        },
+      });
+      await recordActivity({
+        organizationId: tenant.organizationId,
+        leadId: lead.id,
+        actorId: tenant.userId,
+        type: "NOTE_ADDED",
+        message: "Initial note added",
+      });
+    }
+
     revalidatePath("/leads");
     revalidatePath("/dashboard");
     return { ok: true, leadId: lead.id };
   } catch (error) {
+    if (error instanceof ZodError) {
+      return { ok: false, error: error.issues[0]?.message ?? "Invalid lead" };
+    }
     if (isAppError(error)) {
       return { ok: false, error: error.message, code: error.code };
     }
@@ -209,10 +249,12 @@ export async function updateLeadAction(
         phone: data.phone,
         alternatePhone: data.alternatePhone,
         whatsappNumber: data.whatsappNumber,
-        website: data.website,
-        city: data.city,
-        state: data.state,
-        country: data.country,
+        website: data.website || null,
+        address: data.address || null,
+        city: data.city || null,
+        state: data.state || null,
+        country: data.country || null,
+        postalCode: data.postalCode || null,
         industry: data.industry,
         jobTitle: data.jobTitle,
         companySize: data.companySize,
@@ -225,12 +267,16 @@ export async function updateLeadAction(
         sourceDetail: data.sourceDetail,
         campaign: data.campaign,
         priority: data.priority ?? existing.priority,
+        leadScore: data.leadScore ?? existing.leadScore,
         assignedUserId: data.assignedUserId || null,
+        assignedTeamId: data.assignedTeamId || null,
         description: data.description,
         pipelineId,
         stageId: data.stageId,
       },
     });
+
+    await syncLeadTags(tenant.organizationId, leadId, data.tags);
 
     await recordActivity({
       organizationId: tenant.organizationId,
@@ -244,6 +290,9 @@ export async function updateLeadAction(
     revalidatePath("/leads");
     return { ok: true, leadId };
   } catch (error) {
+    if (error instanceof ZodError) {
+      return { ok: false, error: error.issues[0]?.message ?? "Invalid lead" };
+    }
     if (isAppError(error)) {
       return { ok: false, error: error.message, code: error.code };
     }
@@ -376,6 +425,12 @@ export async function changeLeadStatusAction(
     if (status === "CONVERTED") {
       await requirePermission("lead.convert");
     }
+    if (status === "LOST") {
+      const reason = lostReason?.trim();
+      if (!reason || !LOST_REASONS.includes(reason as (typeof LOST_REASONS)[number])) {
+        return { ok: false, error: "A lost reason is required" };
+      }
+    }
 
     await prisma.lead.update({
       where: { id: leadId },
@@ -389,11 +444,18 @@ export async function changeLeadStatusAction(
       organizationId: tenant.organizationId,
       leadId,
       actorId: tenant.userId,
-      type: status === "LOST" ? "MARKED_LOST" : "STATUS_CHANGED",
+      type:
+        status === "LOST"
+          ? "MARKED_LOST"
+          : status === "CONVERTED"
+            ? "CONVERTED"
+            : "STATUS_CHANGED",
       message:
         status === "LOST"
           ? `Lead marked lost${lostReason ? `: ${lostReason}` : ""}`
-          : `Status changed to ${status}`,
+          : status === "CONVERTED"
+            ? "Lead converted"
+            : `Status changed to ${status}`,
       previous: { status: lead.status },
       next: { status },
     });
@@ -405,5 +467,105 @@ export async function changeLeadStatusAction(
       return { ok: false, error: error.message, code: error.code };
     }
     return { ok: false, error: "Failed to update status" };
+  }
+}
+
+async function scopedLeads(ids: string[], tenant: Awaited<ReturnType<typeof requirePermission>>) {
+  return prisma.lead.findMany({
+    where: {
+      id: { in: ids },
+      ...leadVisibilityWhere(tenant),
+      archivedAt: null,
+    },
+    select: { id: true },
+  });
+}
+
+export async function bulkLeadAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const op = String(formData.get("op") ?? "");
+    const ids = String(formData.get("leadIds") ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+    if (ids.length === 0) return { ok: false, error: "Select at least one lead" };
+
+    const permission =
+      op === "archive"
+        ? "lead.delete"
+        : op === "assign"
+          ? "lead.assign"
+          : op === "stage"
+            ? "lead.change_stage"
+            : "lead.edit";
+    const tenant = await requirePermission(permission);
+    const scoped = await scopedLeads(ids, tenant);
+    const scopedIds = scoped.map((l) => l.id);
+    if (scopedIds.length === 0) return { ok: false, error: "No matching leads" };
+
+    const data: Prisma.LeadUncheckedUpdateManyInput = {};
+    if (op === "assign") {
+      const assignedUserId = String(formData.get("assignedUserId") ?? "") || null;
+      data.assignedUserId = assignedUserId;
+    } else if (op === "stage") {
+      const stageId = String(formData.get("stageId") ?? "");
+      const stage = await prisma.leadStage.findFirst({
+        where: { id: stageId, organizationId: tenant.organizationId },
+      });
+      if (!stage) return { ok: false, error: "Stage not found" };
+      data.stageId = stage.id;
+      data.pipelineId = stage.pipelineId;
+    } else if (op === "status") {
+      const status = String(formData.get("status") ?? "") as LeadStatus;
+      if (status === "LOST") {
+        const reason = String(formData.get("lostReason") ?? "").trim();
+        if (!LOST_REASONS.includes(reason as (typeof LOST_REASONS)[number])) {
+          return { ok: false, error: "A lost reason is required" };
+        }
+        data.status = LeadStatus.LOST;
+        data.lostReason = reason;
+      } else if (status === "CONVERTED") {
+        await requirePermission("lead.convert");
+        data.status = LeadStatus.CONVERTED;
+        data.convertedAt = new Date();
+      } else {
+        data.status = status;
+      }
+    } else if (op === "priority") {
+      data.priority = String(formData.get("priority") ?? "") as LeadPriority;
+    } else if (op === "archive") {
+      data.archivedAt = new Date();
+    } else if (op === "tag") {
+      const names = parseTagNames(String(formData.get("tags") ?? ""));
+      for (const leadId of scopedIds) {
+        const existing = await prisma.leadTagOnLead.findMany({
+          where: { leadId },
+          include: { tag: true },
+        });
+        const current = existing.map((row) => row.tag.name).join(",");
+        await syncLeadTags(
+          tenant.organizationId,
+          leadId,
+          [...current.split(","), ...names].join(","),
+        );
+      }
+      revalidatePath("/leads");
+      return { ok: true, message: `Updated ${scopedIds.length} leads` };
+    } else {
+      return { ok: false, error: "Unknown bulk action" };
+    }
+
+    await prisma.lead.updateMany({
+      where: { id: { in: scopedIds }, organizationId: tenant.organizationId },
+      data,
+    });
+    revalidatePath("/leads");
+    revalidatePath("/dashboard");
+    return { ok: true, message: `Updated ${scopedIds.length} leads` };
+  } catch (error) {
+    if (isAppError(error)) {
+      return { ok: false, error: error.message, code: error.code };
+    }
+    return { ok: false, error: "Bulk action failed" };
   }
 }
