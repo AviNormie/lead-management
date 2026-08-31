@@ -47,8 +47,26 @@ In the Supabase dashboard, set redirect URLs:
 | `DIRECT_URL` | No | Direct/session URL for Prisma migrations |
 | `NEXT_PUBLIC_SITE_URL` | Yes | App origin for invite/reset links |
 | `ENCRYPTION_KEY` | No | Future integration credential encryption |
+| `RESEND_API_KEY` | **No** | Resend API key for transactional email (optional) |
+| `RESEND_FROM_EMAIL` | **No** | Verified From address, e.g. `IntraCore <onboarding@resend.dev>` |
+| `CRON_SECRET` | **No** | Bearer token for `/api/cron/*` (follow-up reminders) |
 
 Never commit `.env` (use `.env.example` as the template).
+
+### Supabase Storage (call recordings)
+
+Create a **private** Storage bucket named `lead-call-recordings` in the Supabase dashboard (or via SQL). Recordings are uploaded server-side with the service role and played back via short-lived signed URLs. Max file size: 25MB. Allowed MIME types: `audio/mpeg`, `audio/wav`, `audio/mp4`, `audio/webm`, `audio/x-m4a`.
+
+### Transactional email (Resend)
+
+When `RESEND_API_KEY` and `RESEND_FROM_EMAIL` are set, the app sends:
+
+- Member invitation emails
+- Lead assignment notifications
+- Follow-up created + due reminders (hourly cron)
+- Meeting logged alerts to the lead assignee
+
+Without these vars, actions still succeed; invites show a copyable URL fallback.
 
 ## Deploy on Vercel
 
@@ -64,6 +82,9 @@ Never commit `.env` (use `.env.example` as the template).
 | `DATABASE_URL` | Supabase **pooler** Postgres URL |
 | `DIRECT_URL` | Supabase **direct** Postgres URL |
 | `ENCRYPTION_KEY` | Random 32+ char string |
+| `RESEND_API_KEY` | Resend API key (optional) |
+| `RESEND_FROM_EMAIL` | Verified sender address (optional) |
+| `CRON_SECRET` | Random secret for cron routes (optional) |
 
 3. In Supabase → **Authentication → URL Configuration**, add:
    - Site URL: your Vercel domain
