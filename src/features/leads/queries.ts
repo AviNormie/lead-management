@@ -1,9 +1,13 @@
 import { prisma } from "@/lib/db/prisma";
-import { seedOrganizationLeadDefaults } from "@/lib/leads/seed-defaults";
+import { seedOrganizationLeadDefaults, ensureOrganizationLeadViews, ensureEducationCustomFields } from "@/lib/leads/seed-defaults";
 import type { Prisma } from "@prisma/client";
 import { leadListQuerySchema } from "@/lib/validations/leads";
 import type { TenantContext } from "@/lib/tenant";
 import { leadVisibilityWhere } from "@/features/leads/scope";
+import {
+  parseViewFilterConfig,
+  resolveViewFilters,
+} from "@/lib/leads/view-filters";
 
 export function parseLeadListQuery(
   raw: Record<string, string | string[] | undefined>,
@@ -23,6 +27,10 @@ export function parseLeadListQuery(
     from: typeof raw.from === "string" ? raw.from : undefined,
     to: typeof raw.to === "string" ? raw.to : undefined,
     view: typeof raw.view === "string" ? raw.view : undefined,
+    interested:
+      typeof raw.interested === "string" && raw.interested === "true"
+        ? "true"
+        : undefined,
     page: raw.page,
     pageSize: raw.pageSize,
     sort: raw.sort,
@@ -33,10 +41,12 @@ export function parseLeadListQuery(
 export function leadListWhere(
   tenant: TenantContext,
   parsed: ReturnType<typeof parseLeadListQuery>,
+  viewFilters?: Prisma.LeadWhereInput,
 ): Prisma.LeadWhereInput {
   const where: Prisma.LeadWhereInput = {
     ...leadVisibilityWhere(tenant),
     archivedAt: null,
+    ...(viewFilters ?? {}),
   };
 
   if (parsed.status) where.status = parsed.status;
@@ -44,6 +54,7 @@ export function leadListWhere(
   if (parsed.sourceId) where.sourceId = parsed.sourceId;
   if (parsed.priority) where.priority = parsed.priority;
   if (parsed.assignedUserId) where.assignedUserId = parsed.assignedUserId;
+  if (parsed.interested === "true") where.productId = { not: null };
   if (parsed.from || parsed.to) {
     where.createdAt = {
       ...(parsed.from ? { gte: new Date(parsed.from) } : {}),
@@ -61,11 +72,10 @@ export function leadListWhere(
   return where;
 }
 
-const leadListInclude = {
+const leadListIncludeMinimal = {
   source: true,
   stage: true,
   assignedUser: { select: { id: true, name: true, email: true } },
-  tags: { include: { tag: true } },
   followUps: {
     where: { status: "PENDING" as const },
     orderBy: { dueAt: "asc" as const },
@@ -73,41 +83,267 @@ const leadListInclude = {
   },
 } satisfies Prisma.LeadInclude;
 
-export async function listLeads(
+const leadListInclude = {
+  ...leadListIncludeMinimal,
+  product: true,
+  tags: { include: { tag: true } },
+  flags: { include: { flag: true } },
+} satisfies Prisma.LeadInclude;
+
+export async function getLeadViewBySlug(organizationId: string, slug: string) {
+  await ensureOrganizationLeadViews(prisma, organizationId);
+  return prisma.leadView.findFirst({
+    where: { organizationId, slug, isActive: true },
+  });
+}
+
+export async function getLeadNavViews(organizationId: string) {
+  await ensureOrganizationLeadViews(prisma, organizationId);
+  const views = await prisma.leadView.findMany({
+    where: { organizationId, isActive: true },
+    orderBy: [{ category: "asc" }, { sortOrder: "asc" }],
+    select: {
+      slug: true,
+      name: true,
+      category: true,
+      href: true,
+    },
+  });
+
+  const categoryLabels: Record<string, string> = {
+    HOME: "HOME",
+    ADMISSION: "ADMISSION / CONVERSION",
+    FLAGGED: "FLAGGED LEADS",
+    REPORTS: "REPORTS",
+  };
+
+  const grouped = new Map<string, typeof views>();
+  for (const view of views) {
+    const key = view.category;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(view);
+  }
+
+  return Array.from(grouped.entries()).map(([category, items]) => ({
+    title: categoryLabels[category] ?? category,
+    category,
+    items: items.map((v) => ({
+      href: v.href ?? `/leads/view/${v.slug}`,
+      label: v.name,
+      slug: v.slug,
+    })),
+  }));
+}
+
+async function resolveListContext(
   tenant: TenantContext,
   raw: Record<string, string | string[] | undefined>,
 ) {
   const parsed = parseLeadListQuery(raw);
-  const where = leadListWhere(tenant, parsed);
-  const skip = (parsed.page - 1) * parsed.pageSize;
+  const slug = typeof raw.slug === "string" ? raw.slug : undefined;
+  let leadView = null;
+  let viewFilters: Prisma.LeadWhereInput = {};
+
+  if (slug) {
+    leadView = await getLeadViewBySlug(tenant.organizationId, slug);
+    if (leadView?.href && !leadView.filters) {
+      return { parsed, leadView, viewFilters, redirectHref: leadView.href };
+    }
+    if (leadView) {
+      const filterConfig = parseViewFilterConfig(leadView.filters);
+      if (leadView.href && Object.keys(filterConfig).length === 0) {
+        return { parsed, leadView, viewFilters, redirectHref: leadView.href };
+      }
+      const org = await prisma.organization.findUnique({
+        where: { id: tenant.organizationId },
+        select: { timezone: true },
+      });
+      viewFilters = resolveViewFilters(
+        parseViewFilterConfig(leadView.filters),
+        org?.timezone ?? "UTC",
+      );
+    }
+  }
+
+  const where = leadListWhere(tenant, parsed, viewFilters);
+  return { parsed, leadView, viewFilters, where, redirectHref: null as string | null };
+}
+
+export async function listLeads(
+  tenant: TenantContext,
+  raw: Record<string, string | string[] | undefined>,
+) {
+  const ctx = await resolveListContext(tenant, raw);
+  if (ctx.redirectHref) {
+    return {
+      total: 0,
+      rows: [],
+      page: ctx.parsed.page,
+      pageSize: ctx.parsed.pageSize,
+      parsed: ctx.parsed,
+      leadView: ctx.leadView,
+      redirectHref: ctx.redirectHref,
+    };
+  }
+
+  const sortField =
+    ctx.leadView?.sort && ctx.leadView.sort in { createdAt: 1, fullName: 1, leadScore: 1, nextFollowUpAt: 1, reEngagedAt: 1 }
+      ? ctx.leadView.sort
+      : ctx.parsed.sort;
+  const sortDir =
+    (ctx.leadView?.sortDir as "asc" | "desc" | undefined) ?? ctx.parsed.dir;
+  const skip = (ctx.parsed.page - 1) * ctx.parsed.pageSize;
 
   const [total, rows] = await Promise.all([
-    prisma.lead.count({ where }),
+    prisma.lead.count({ where: ctx.where! }),
     prisma.lead.findMany({
-      where,
+      where: ctx.where!,
       include: leadListInclude,
-      orderBy: { [parsed.sort]: parsed.dir },
+      orderBy: { [sortField]: sortDir },
       skip,
-      take: parsed.pageSize,
+      take: ctx.parsed.pageSize,
     }),
   ]);
 
-  return { total, rows, page: parsed.page, pageSize: parsed.pageSize, parsed };
+  return {
+    total,
+    rows,
+    page: ctx.parsed.page,
+    pageSize: ctx.parsed.pageSize,
+    parsed: ctx.parsed,
+    leadView: ctx.leadView,
+    redirectHref: null,
+  };
 }
 
 export async function listLeadsForKanban(
   tenant: TenantContext,
   raw: Record<string, string | string[] | undefined>,
 ) {
-  const parsed = parseLeadListQuery(raw);
-  const where = leadListWhere(tenant, parsed);
+  const ctx = await resolveListContext(tenant, raw);
+  if (ctx.redirectHref || !ctx.where) {
+    return { rows: [], parsed: ctx.parsed, leadView: ctx.leadView };
+  }
   const rows = await prisma.lead.findMany({
-    where,
+    where: ctx.where,
     include: leadListInclude,
     orderBy: { updatedAt: "desc" },
     take: 400,
   });
-  return { rows, parsed };
+  return { rows, parsed: ctx.parsed, leadView: ctx.leadView };
+}
+
+export async function getLeadListStats(
+  tenant: TenantContext,
+  raw: Record<string, string | string[] | undefined>,
+) {
+  const ctx = await resolveListContext(tenant, raw);
+  if (!ctx.where) {
+    return { total: 0, newLeads: 0, converted: 0, lost: 0, followUpsDue: 0 };
+  }
+
+  const now = new Date();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(now);
+  endOfToday.setHours(23, 59, 59, 999);
+
+  const [grouped, followUpsDue] = await Promise.all([
+    prisma.lead.groupBy({
+      by: ["status"],
+      where: ctx.where,
+      _count: { _all: true },
+    }),
+    prisma.leadFollowUp.count({
+      where: {
+        organizationId: tenant.organizationId,
+        status: "PENDING",
+        dueAt: { gte: startOfToday, lte: endOfToday },
+        lead: ctx.where,
+      },
+    }),
+  ]);
+
+  const countByStatus = Object.fromEntries(
+    grouped.map((row) => [row.status, row._count._all]),
+  );
+  const total = grouped.reduce((sum, row) => sum + row._count._all, 0);
+  return {
+    total,
+    newLeads: countByStatus.NEW ?? 0,
+    converted: countByStatus.CONVERTED ?? 0,
+    lost: countByStatus.LOST ?? 0,
+    followUpsDue,
+  };
+}
+
+export async function getLeadReportsSummary(organizationId: string) {
+  const base = { organizationId, archivedAt: null as Date | null };
+
+  const [charts, byStatus, interestedCount, byProductRows, products, byLostReason, transferCount, reengagementCount, byPriority] =
+    await Promise.all([
+      getLeadDashboardCharts(organizationId),
+      prisma.lead.groupBy({
+        by: ["status"],
+        where: base,
+        _count: { _all: true },
+      }),
+      prisma.lead.count({
+        where: { ...base, productId: { not: null } },
+      }),
+      prisma.lead.groupBy({
+        by: ["productId"],
+        where: { ...base, productId: { not: null } },
+        _count: { _all: true },
+      }),
+      prisma.leadProduct.findMany({
+        where: { organizationId },
+        select: { id: true, name: true },
+      }),
+      prisma.lead.groupBy({
+        by: ["lostReason"],
+        where: { ...base, status: "LOST", lostReason: { not: null } },
+        _count: { _all: true },
+      }),
+      prisma.leadTransfer.count({ where: { organizationId } }),
+      prisma.leadReengagement.count({ where: { organizationId } }),
+      prisma.lead.groupBy({
+        by: ["priority"],
+        where: base,
+        _count: { _all: true },
+      }),
+    ]);
+
+  const productName = new Map(products.map((p) => [p.id, p.name]));
+  const statusCounts = Object.fromEntries(
+    byStatus.map((row) => [row.status, row._count._all]),
+  );
+  const total = byStatus.reduce((sum, row) => sum + row._count._all, 0);
+
+  return {
+    total,
+    statusCounts,
+    interestedCount,
+    lostCount: statusCounts.LOST ?? 0,
+    closedCount: statusCounts.CONVERTED ?? 0,
+    byProduct: byProductRows.map((row) => ({
+      label: row.productId
+        ? productName.get(row.productId) ?? "Unknown"
+        : "Unspecified",
+      value: row._count._all,
+    })),
+    byLostReason: byLostReason.map((row) => ({
+      label: row.lostReason ?? "Unknown",
+      value: row._count._all,
+    })),
+    byPriority: byPriority.map((row) => ({
+      label: row.priority,
+      value: row._count._all,
+    })),
+    transferCount,
+    reengagementCount,
+    charts,
+  };
 }
 
 export async function getLeadLookups(organizationId: string) {
@@ -154,8 +390,22 @@ export async function getLeadLookups(organizationId: string) {
     ]);
   }
 
+  const [flags, customFields] = await Promise.all([
+    prisma.leadFlagDefinition.findMany({
+      where: { organizationId, isActive: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+    prisma.leadCustomFieldDefinition.findMany({
+      where: { organizationId, isActive: true },
+      orderBy: [{ section: "asc" }, { sortOrder: "asc" }],
+    }),
+  ]);
+
+  await ensureOrganizationLeadViews(prisma, organizationId);
+  await ensureEducationCustomFields(prisma, organizationId);
+
   const stages = pipelines.flatMap((p) => p.stages);
-  return { sources, pipelines, stages, members, teams, tags, products };
+  return { sources, pipelines, stages, members, teams, tags, products, flags, customFields };
 }
 
 export const EMPTY_DASHBOARD_STATS = {
@@ -328,6 +578,47 @@ export async function getLeadDashboardCharts(organizationId: string) {
   };
 }
 
+export async function listReEngagedLeads(
+  tenant: TenantContext,
+  raw: Record<string, string | string[] | undefined> = {},
+) {
+  const parsed = parseLeadListQuery(raw);
+
+  const baseWhere: Prisma.LeadWhereInput = {
+    ...leadVisibilityWhere(tenant),
+    archivedAt: null,
+    reEngagedAt: { not: null },
+  };
+
+  const where: Prisma.LeadWhereInput = { ...baseWhere };
+  if (parsed.status) where.status = parsed.status;
+  if (parsed.sourceId) where.sourceId = parsed.sourceId;
+  if (parsed.priority) where.priority = parsed.priority;
+  if (parsed.assignedUserId) where.assignedUserId = parsed.assignedUserId;
+  if (parsed.q) {
+    where.OR = [
+      { fullName: { contains: parsed.q, mode: "insensitive" } },
+      { company: { contains: parsed.q, mode: "insensitive" } },
+      { email: { contains: parsed.q, mode: "insensitive" } },
+      { phone: { contains: parsed.q, mode: "insensitive" } },
+    ];
+  }
+
+  const skip = (parsed.page - 1) * parsed.pageSize;
+  const [total, rows] = await Promise.all([
+    prisma.lead.count({ where }),
+    prisma.lead.findMany({
+      where,
+      include: leadListIncludeMinimal,
+      orderBy: { reEngagedAt: "desc" },
+      skip,
+      take: parsed.pageSize,
+    }),
+  ]);
+
+  return { total, rows, page: parsed.page, pageSize: parsed.pageSize, parsed };
+}
+
 export async function getLeadDetail(tenant: TenantContext, id: string) {
   return prisma.lead.findFirst({
     where: { id, ...leadVisibilityWhere(tenant) },
@@ -336,16 +627,55 @@ export async function getLeadDetail(tenant: TenantContext, id: string) {
       product: true,
       stage: true,
       assignedUser: true,
+      assignedTeam: true,
       tags: { include: { tag: true } },
+      flags: { include: { flag: true } },
+      customFieldValues: { include: { field: true } },
       notes: { include: { author: true }, orderBy: { createdAt: "desc" } },
       tasks: { orderBy: { createdAt: "desc" } },
       followUps: { orderBy: { dueAt: "asc" } },
+      callRecords: {
+        include: { user: { select: { id: true, name: true, email: true } } },
+        orderBy: { calledAt: "desc" },
+        take: 50,
+      },
+      transfers: {
+        include: {
+          fromUser: { select: { id: true, name: true, email: true } },
+          toUser: { select: { id: true, name: true, email: true } },
+          transferredBy: { select: { id: true, name: true, email: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      },
+      reengagements: {
+        include: {
+          createdBy: { select: { id: true, name: true, email: true } },
+          assignedUser: { select: { id: true, name: true, email: true } },
+        },
+        orderBy: { reengagedAt: "desc" },
+        take: 10,
+      },
       activities: {
         include: { actor: true },
         orderBy: { createdAt: "desc" },
-        take: 80,
+        take: 100,
       },
     },
+  });
+}
+
+export async function listLeadTransfers(tenant: TenantContext) {
+  return prisma.leadTransfer.findMany({
+    where: { organizationId: tenant.organizationId },
+    include: {
+      lead: { select: { id: true, fullName: true } },
+      fromUser: { select: { id: true, name: true, email: true } },
+      toUser: { select: { id: true, name: true, email: true } },
+      transferredBy: { select: { id: true, name: true, email: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 200,
   });
 }
 
