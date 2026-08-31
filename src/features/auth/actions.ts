@@ -156,24 +156,46 @@ export async function forgotPasswordAction(
   _prev: ActionResult | null,
   formData: FormData,
 ): Promise<ActionResult> {
-  const email = String(formData.get("email") ?? "")
-    .trim()
-    .toLowerCase();
-  if (!email) {
-    return { ok: false, error: "Email is required" };
-  }
+  try {
+    if (!hasSupabasePublicEnv()) {
+      return configError();
+    }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${getSiteUrl()}/auth/callback?next=/reset-password`,
-  });
-  if (error) {
-    return { ok: false, error: error.message };
+    const email = String(formData.get("email") ?? "")
+      .trim()
+      .toLowerCase();
+    if (!email) {
+      return { ok: false, error: "Email is required" };
+    }
+
+    const supabase = await createClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${getSiteUrl()}/auth/callback?next=/reset-password`,
+    });
+    if (error) {
+      const message =
+        error.message === "fetch failed"
+          ? "Could not reach the auth service. Check your connection and try again."
+          : error.message;
+      return { ok: false, error: message };
+    }
+    return {
+      ok: true,
+      message: "If an account exists, a reset email has been sent.",
+    };
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes("Missing NEXT_PUBLIC_SUPABASE")
+    ) {
+      return configError();
+    }
+    console.error("forgotPasswordAction failed", error);
+    return {
+      ok: false,
+      error: "Could not send reset email. Check your connection and try again.",
+    };
   }
-  return {
-    ok: true,
-    message: "If an account exists, a reset email has been sent.",
-  };
 }
 
 export async function updatePasswordAction(

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -173,7 +174,6 @@ export function LeadForm({
         ) : null}
 
         <section className="grid gap-4 sm:grid-cols-2">
-          <h2 className="sm:col-span-2 text-sm font-semibold">Basic information</h2>
           <Field
             id="firstName"
             label="First name"
@@ -195,6 +195,9 @@ export function LeadForm({
           <Field id="company" label="Company" error={errors.company?.message}>
             <Input id="company" autoComplete="organization" {...register("company")} />
           </Field>
+          <Field id="jobTitle" label="Job title" error={errors.jobTitle?.message}>
+            <Input id="jobTitle" autoComplete="organization-title" {...register("jobTitle")} />
+          </Field>
           <Field id="gstNo" label="GST No" error={errors.gstNo?.message}>
             <Input
               id="gstNo"
@@ -203,9 +206,6 @@ export function LeadForm({
               aria-invalid={!!errors.gstNo}
               {...register("gstNo")}
             />
-          </Field>
-          <Field id="jobTitle" label="Job title" error={errors.jobTitle?.message}>
-            <Input id="jobTitle" autoComplete="organization-title" {...register("jobTitle")} />
           </Field>
           <Field id="email" label="Email" error={errors.email?.message}>
             <Input
@@ -231,15 +231,6 @@ export function LeadForm({
               {...register("phone")}
             />
           </Field>
-          <Field id="alternatePhone" label="Alternate phone" error={errors.alternatePhone?.message}>
-            <Input
-              id="alternatePhone"
-              type="tel"
-              className={invalidClass(!!errors.alternatePhone)}
-              aria-invalid={!!errors.alternatePhone}
-              {...register("alternatePhone")}
-            />
-          </Field>
           <Field id="whatsappNumber" label="WhatsApp" error={errors.whatsappNumber?.message}>
             <Input
               id="whatsappNumber"
@@ -250,64 +241,22 @@ export function LeadForm({
               {...register("whatsappNumber")}
             />
           </Field>
-          <Field id="website" label="Website" error={errors.website?.message}>
-            <Input
-              id="website"
-              type="url"
-              placeholder="https://example.com"
-              className={invalidClass(!!errors.website)}
-              aria-invalid={!!errors.website}
-              {...register("website")}
-            />
+          <Field id="city" label="City" error={errors.city?.message}>
+            <Input id="city" autoComplete="address-level2" {...register("city")} />
           </Field>
-        </section>
-
-        <section className="grid gap-4 sm:grid-cols-2">
-          <h2 className="sm:col-span-2 text-sm font-semibold">Address</h2>
           <Field id="address" label="Address" className="sm:col-span-2" error={errors.address?.message}>
             <Textarea
               id="address"
               rows={2}
               autoComplete="street-address"
+              placeholder="Street, building, area"
               className={invalidClass(!!errors.address)}
               aria-invalid={!!errors.address}
               {...register("address")}
             />
           </Field>
-          <Field id="city" label="City" error={errors.city?.message}>
-            <Input id="city" autoComplete="address-level2" {...register("city")} />
-          </Field>
-          <Field id="state" label="State" error={errors.state?.message}>
-            <Input id="state" autoComplete="address-level1" {...register("state")} />
-          </Field>
           <Field id="country" label="Country" error={errors.country?.message}>
             <Input id="country" autoComplete="country-name" {...register("country")} />
-          </Field>
-          <Field id="postalCode" label="Postal code" error={errors.postalCode?.message}>
-            <Input id="postalCode" autoComplete="postal-code" {...register("postalCode")} />
-          </Field>
-        </section>
-
-        <section className="grid gap-4 sm:grid-cols-2">
-          <h2 className="sm:col-span-2 text-sm font-semibold">Business details</h2>
-          <Field id="industry" label="Industry" error={errors.industry?.message}>
-            <Input id="industry" {...register("industry")} />
-          </Field>
-          <Field id="companySize" label="Company size" error={errors.companySize?.message}>
-            <Input id="companySize" {...register("companySize")} />
-          </Field>
-          <Field id="productId" label="Interested in" error={errors.productId?.message}>
-            <Select id="productId" {...register("productId")}>
-              <option value="">Select product</option>
-              {lookups.products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field id="budget" label="Budget" error={errors.budget?.message}>
-            <Input id="budget" {...register("budget")} />
           </Field>
           <Field id="expectedValue" label="Expected value" error={errors.expectedValue?.message}>
             <Input
@@ -320,22 +269,24 @@ export function LeadForm({
               {...register("expectedValue")}
             />
           </Field>
-          <Field id="purchaseTimeline" label="Purchase timeline" error={errors.purchaseTimeline?.message}>
-            <Input id="purchaseTimeline" {...register("purchaseTimeline")} />
+          <Field id="productId" label="Interested in" error={errors.productId?.message}>
+            <Select id="productId" {...register("productId")}>
+              <option value="">Select product</option>
+              {lookups.products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+            {lookups.products.length === 0 ? (
+              <p className="mt-1 text-2xs text-muted">
+                No products yet.{" "}
+                <Link href="/settings/lead-products" className="text-primary underline-offset-2 hover:underline">
+                  Add products in settings
+                </Link>
+              </p>
+            ) : null}
           </Field>
-          <Field id="requirement" label="Requirement" className="sm:col-span-2" error={errors.requirement?.message}>
-            <Textarea
-              id="requirement"
-              rows={3}
-              className={invalidClass(!!errors.requirement)}
-              aria-invalid={!!errors.requirement}
-              {...register("requirement")}
-            />
-          </Field>
-        </section>
-
-        <section className="grid gap-4 sm:grid-cols-2">
-          <h2 className="sm:col-span-2 text-sm font-semibold">Lead details</h2>
           <Field id="sourceId" label="Source" required error={errors.sourceId?.message}>
             <Select
               id="sourceId"
@@ -351,12 +302,6 @@ export function LeadForm({
                 </option>
               ))}
             </Select>
-          </Field>
-          <Field id="sourceDetail" label="Source detail" error={errors.sourceDetail?.message}>
-            <Input id="sourceDetail" {...register("sourceDetail")} />
-          </Field>
-          <Field id="campaign" label="Campaign" error={errors.campaign?.message}>
-            <Input id="campaign" {...register("campaign")} />
           </Field>
           <Field id="stageId" label="Stage" error={errors.stageId?.message}>
             <Select id="stageId" {...register("stageId")}>
@@ -376,6 +321,63 @@ export function LeadForm({
               <option value="URGENT">Urgent</option>
             </Select>
           </Field>
+          <Field id="assignedUserId" label="Assigned to" error={errors.assignedUserId?.message}>
+            <Select id="assignedUserId" {...register("assignedUserId")}>
+              <option value="">Unassigned</option>
+              {lookups.members.map((m) => (
+                <option key={m.user.id} value={m.user.id}>
+                  {m.user.name ?? m.user.email}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </section>
+
+        <section className="grid gap-4 sm:grid-cols-2">
+          <h2 className="sm:col-span-2 text-sm font-semibold text-muted">Additional details</h2>
+          <Field id="alternatePhone" label="Alternate phone" error={errors.alternatePhone?.message}>
+            <Input
+              id="alternatePhone"
+              type="tel"
+              className={invalidClass(!!errors.alternatePhone)}
+              aria-invalid={!!errors.alternatePhone}
+              {...register("alternatePhone")}
+            />
+          </Field>
+          <Field id="website" label="Website" error={errors.website?.message}>
+            <Input
+              id="website"
+              type="url"
+              placeholder="https://example.com"
+              className={invalidClass(!!errors.website)}
+              aria-invalid={!!errors.website}
+              {...register("website")}
+            />
+          </Field>
+          <Field id="state" label="State" error={errors.state?.message}>
+            <Input id="state" autoComplete="address-level1" {...register("state")} />
+          </Field>
+          <Field id="postalCode" label="Postal code" error={errors.postalCode?.message}>
+            <Input id="postalCode" autoComplete="postal-code" {...register("postalCode")} />
+          </Field>
+          <Field id="industry" label="Industry" error={errors.industry?.message}>
+            <Input id="industry" {...register("industry")} />
+          </Field>
+          <Field id="companySize" label="Company size" error={errors.companySize?.message}>
+            <Input id="companySize" {...register("companySize")} />
+          </Field>
+          <Field id="budget" label="Budget" error={errors.budget?.message}>
+            <Input id="budget" {...register("budget")} />
+          </Field>
+          <Field id="purchaseTimeline" label="Purchase timeline" error={errors.purchaseTimeline?.message}>
+            <Input id="purchaseTimeline" {...register("purchaseTimeline")} />
+          </Field>
+          <Field id="sourceDetail" label="Source detail" error={errors.sourceDetail?.message}>
+            <Input id="sourceDetail" {...register("sourceDetail")} />
+          </Field>
+          <Field id="campaign" label="Campaign" error={errors.campaign?.message}>
+            <Input id="campaign" {...register("campaign")} />
+          </Field>
           <Field id="leadScore" label="Lead score" error={errors.leadScore?.message}>
             <Input
               id="leadScore"
@@ -386,16 +388,6 @@ export function LeadForm({
               aria-invalid={!!errors.leadScore}
               {...register("leadScore")}
             />
-          </Field>
-          <Field id="assignedUserId" label="Assigned to" error={errors.assignedUserId?.message}>
-            <Select id="assignedUserId" {...register("assignedUserId")}>
-              <option value="">Unassigned</option>
-              {lookups.members.map((m) => (
-                <option key={m.user.id} value={m.user.id}>
-                  {m.user.name ?? m.user.email}
-                </option>
-              ))}
-            </Select>
           </Field>
           <Field id="assignedTeamId" label="Team" error={errors.assignedTeamId?.message}>
             <Select id="assignedTeamId" {...register("assignedTeamId")}>
@@ -414,6 +406,15 @@ export function LeadForm({
             error={errors.tags?.message}
           >
             <Input id="tags" placeholder="hot, enterprise" {...register("tags")} />
+          </Field>
+          <Field id="requirement" label="Requirement" className="sm:col-span-2" error={errors.requirement?.message}>
+            <Textarea
+              id="requirement"
+              rows={3}
+              className={invalidClass(!!errors.requirement)}
+              aria-invalid={!!errors.requirement}
+              {...register("requirement")}
+            />
           </Field>
         </section>
 

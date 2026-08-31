@@ -7,6 +7,7 @@ import { format } from "date-fns";
 import { Filter, LayoutGrid, Plus, Table2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { bulkLeadAction, changeLeadStageAction } from "@/features/leads/actions";
+import { bulkTransferAction } from "@/features/leads/transfer-actions";
 import { ExportLeadsButton } from "@/features/leads/export-button";
 import { PageHeader } from "@/components/layout/page-header";
 import { DataTable } from "@/components/layout/data-table";
@@ -25,26 +26,152 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LOST_REASONS } from "@/lib/leads/lost-reasons";
+import {
+  DEFAULT_LIST_COLUMNS,
+  formatDueCallLabel,
+  type ListColumnKey,
+} from "@/lib/leads/view-filters";
 
 export type LeadListRow = {
   id: string;
   fullName: string;
   email: string | null;
+  phone: string | null;
   company: string | null;
   status: string;
   priority: string;
   leadScore: number;
   nextFollowUpAt: Date | null;
+  callbackAt: Date | null;
+  reEngagedAt: Date | null;
+  createdAt: Date;
   source: { name: string } | null;
   stage: { id: string; name: string } | null;
   assignedUser: { id: string; name: string | null; email: string } | null;
+  flags: { key: string; label: string; color?: string | null }[];
 };
+
+const COLUMN_LABELS: Record<string, string> = {
+  leadId: "Lead ID",
+  name: "Lead",
+  company: "Company",
+  contact: "Contact",
+  source: "Source",
+  leadDate: "Lead date",
+  reengagedDate: "Re-engaged",
+  dueCall: "Due call",
+  stage: "Stage",
+  status: "Status",
+  priority: "Priority",
+  assigned: "Assigned",
+  score: "Score",
+  nextFollowUp: "Next follow-up",
+  flags: "Flags",
+};
+
+const CELL_CLASS = "px-2 py-1.5 text-sm";
 
 function toneForStatus(status: string) {
   if (status === "CONVERTED" || status === "QUALIFIED") return "success" as const;
   if (status === "LOST" || status === "UNQUALIFIED") return "danger" as const;
   if (status === "NEW") return "primary" as const;
   return "neutral" as const;
+}
+
+function truncateLeadId(id: string) {
+  if (id.length <= 8) return id;
+  return `…${id.slice(-6)}`;
+}
+
+function renderLeadColumn(
+  key: ListColumnKey,
+  lead: LeadListRow,
+  timezone: string,
+) {
+  switch (key) {
+    case "leadId":
+      return (
+        <span className="font-mono text-2xs text-muted" title={lead.id}>
+          {truncateLeadId(lead.id)}
+        </span>
+      );
+    case "name":
+      return (
+        <>
+          <Link href={`/leads/${lead.id}`} className="font-medium text-primary">
+            {lead.fullName}
+          </Link>
+          {lead.email ? <div className="text-2xs text-subtle">{lead.email}</div> : null}
+        </>
+      );
+    case "company":
+      return <span className="text-muted">{lead.company ?? "—"}</span>;
+    case "contact":
+      return (
+        <>
+          {lead.email ? <div>{lead.email}</div> : null}
+          {lead.phone ? <div className="text-2xs text-subtle">{lead.phone}</div> : null}
+          {!lead.email && !lead.phone ? "—" : null}
+        </>
+      );
+    case "source":
+      return lead.source?.name ?? "—";
+    case "leadDate":
+      return (
+        <span className="text-muted">
+          {lead.createdAt ? format(new Date(lead.createdAt), "dd MMM yyyy") : "—"}
+        </span>
+      );
+    case "reengagedDate":
+      return (
+        <span className="text-muted">
+          {lead.reEngagedAt ? format(new Date(lead.reEngagedAt), "dd MMM yyyy") : "—"}
+        </span>
+      );
+    case "dueCall": {
+      const label = formatDueCallLabel(lead.nextFollowUpAt, lead.callbackAt, timezone);
+      return label ? <Badge tone="neutral">{label}</Badge> : "—";
+    }
+    case "stage":
+      return lead.stage?.name ?? "—";
+    case "status":
+      return <Badge tone={toneForStatus(lead.status)}>{lead.status}</Badge>;
+    case "priority":
+      return <Badge tone="neutral">{lead.priority}</Badge>;
+    case "assigned":
+      return lead.assignedUser ? (
+        <span className="inline-flex items-center gap-1.5">
+          <Avatar name={lead.assignedUser.name} size="sm" />
+          <span>{lead.assignedUser.name ?? lead.assignedUser.email}</span>
+        </span>
+      ) : (
+        "—"
+      );
+    case "score":
+      return lead.leadScore;
+    case "nextFollowUp":
+      return (
+        <span className="text-muted">
+          {lead.nextFollowUpAt
+            ? format(new Date(lead.nextFollowUpAt), "dd MMM yyyy")
+            : "—"}
+        </span>
+      );
+    case "flags":
+      return lead.flags.length ? (
+        <span className="flex flex-wrap gap-1">
+          {lead.flags.map((flag) => (
+            <Badge key={flag.key} tone="neutral">
+              {flag.label}
+            </Badge>
+          ))}
+        </span>
+      ) : (
+        "—"
+      );
+    default:
+      return "—";
+  }
 }
 
 export function LeadsWorkspace({
@@ -60,8 +187,17 @@ export function LeadsWorkspace({
   canImport,
   canEdit,
   canAssign,
+  canTransfer,
   canStage,
   canDelete,
+  title = "Leads",
+  breadcrumbs = ["Overview", "Leads"],
+  listTitle = "All leads",
+  basePath = "/leads",
+  lockedStatus,
+  lockedInterested,
+  columns,
+  timezone = "UTC",
 }: {
   rows: LeadListRow[];
   total: number;
@@ -79,15 +215,26 @@ export function LeadsWorkspace({
   canImport: boolean;
   canEdit: boolean;
   canAssign: boolean;
+  canTransfer: boolean;
   canStage: boolean;
   canDelete: boolean;
+  title?: string;
+  breadcrumbs?: string[];
+  listTitle?: string;
+  basePath?: string;
+  lockedStatus?: string;
+  lockedInterested?: boolean;
+  columns?: string[];
+  timezone?: string;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<string[]>([]);
+  const [transferToUserId, setTransferToUserId] = useState("");
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const view = params.view === "kanban" ? "kanban" : "table";
   const q = params.q ?? "";
+  const activeColumns = columns ?? [...DEFAULT_LIST_COLUMNS];
 
   const queryString = useMemo(() => {
     const sp = new URLSearchParams(params);
@@ -119,17 +266,35 @@ export function LeadsWorkspace({
     }
   }
 
+  async function runTransfer() {
+    if (!transferToUserId) return;
+    const fd = new FormData();
+    fd.set("toUserId", transferToUserId);
+    fd.set("leadIds", selected.join(","));
+    const result = await bulkTransferAction(fd);
+    if (result.ok) {
+      toast.success(result.message ?? "Leads transferred");
+      setSelected([]);
+      setTransferToUserId("");
+      router.refresh();
+    } else {
+      toast.error(result.error);
+    }
+  }
+
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const hrefFor = (next: Record<string, string>) => {
     const sp = new URLSearchParams({ ...params, ...next });
-    return `/leads?${sp.toString()}`;
+    if (lockedStatus) sp.set("status", lockedStatus);
+    if (lockedInterested) sp.set("interested", "true");
+    return `${basePath}?${sp.toString()}`;
   };
 
   return (
     <div>
       <PageHeader
-        breadcrumbs={["Overview", "Leads"]}
-        title="Leads"
+        breadcrumbs={breadcrumbs}
+        title={title}
         subtitle={format(new Date(), "dd MMM yyyy")}
         actions={
           <>
@@ -165,7 +330,7 @@ export function LeadsWorkspace({
         <CardHeader className="flex-col items-stretch gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>
-              {view === "kanban" ? "Pipeline" : "All leads"} ({total})
+              {view === "kanban" ? "Pipeline" : listTitle} ({total})
             </CardTitle>
             <div className="flex gap-1 rounded-pill bg-[var(--ic-surface-muted)] p-1">
               <Link href={hrefFor({ view: "table" })}>
@@ -182,17 +347,25 @@ export function LeadsWorkspace({
               </Link>
             </div>
           </div>
-          <form className="grid gap-2 md:grid-cols-4 lg:grid-cols-8" method="get">
+          <form className="grid gap-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-12" method="get" action={basePath}>
             <input type="hidden" name="view" value={view} />
-            <Input name="q" defaultValue={q} placeholder="Search leads…" />
-            <Select name="status" defaultValue={params.status ?? ""}>
-              <option value="">All statuses</option>
-              {["NEW", "OPEN", "IN_PROGRESS", "QUALIFIED", "CONVERTED", "LOST"].map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </Select>
+            {lockedStatus ? <input type="hidden" name="status" value={lockedStatus} /> : null}
+            {lockedInterested ? <input type="hidden" name="interested" value="true" /> : null}
+            <Input name="q" defaultValue={q} placeholder="Search leads…" className="xl:col-span-2" />
+            {lockedStatus ? (
+              <Select name="status" defaultValue={lockedStatus} disabled className="opacity-70">
+                <option value={lockedStatus}>{lockedStatus}</option>
+              </Select>
+            ) : (
+              <Select name="status" defaultValue={params.status ?? ""}>
+                <option value="">All statuses</option>
+                {["NEW", "OPEN", "IN_PROGRESS", "QUALIFIED", "CONVERTED", "LOST"].map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </Select>
+            )}
             <Select name="sourceId" defaultValue={params.sourceId ?? ""}>
               <option value="">All sources</option>
               {lookups.sources.map((s) => (
@@ -217,6 +390,28 @@ export function LeadsWorkspace({
                 </option>
               ))}
             </Select>
+            <Select name="assignedUserId" defaultValue={params.assignedUserId ?? ""}>
+              <option value="">All assignees</option>
+              {lookups.members.map((m) => (
+                <option key={m.user.id} value={m.user.id}>
+                  {m.user.name ?? m.user.email}
+                </option>
+              ))}
+            </Select>
+            <Input
+              type="date"
+              name="from"
+              defaultValue={params.from ?? ""}
+              aria-label="From date"
+              className="h-10"
+            />
+            <Input
+              type="date"
+              name="to"
+              defaultValue={params.to ?? ""}
+              aria-label="To date"
+              className="h-10"
+            />
             <Select name="sort" defaultValue={params.sort ?? "createdAt"}>
               <option value="createdAt">Newest / oldest</option>
               <option value="fullName">Name</option>
@@ -253,6 +448,31 @@ export function LeadsWorkspace({
                     </option>
                   ))}
                 </Select>
+              ) : null}
+              {canTransfer ? (
+                <>
+                  <Select
+                    className="h-8 w-44"
+                    value={transferToUserId}
+                    onChange={(e) => setTransferToUserId(e.target.value)}
+                  >
+                    <option value="">Lead Transfer To…</option>
+                    {lookups.members.map((m) => (
+                      <option key={m.user.id} value={m.user.id}>
+                        {m.user.name ?? m.user.email}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={!transferToUserId}
+                    onClick={() => void runTransfer()}
+                  >
+                    Transfer
+                  </Button>
+                </>
               ) : null}
               {canStage ? (
                 <Select
@@ -355,63 +575,25 @@ export function LeadsWorkspace({
             />
           ) : (
             <DataTable
-              columns={[
-                "",
-                "Lead",
-                "Company",
-                "Source",
-                "Stage",
-                "Status",
-                "Priority",
-                "Assigned",
-                "Score",
-                "Next follow-up",
-              ]}
+              columns={["", ...activeColumns.map((key) => COLUMN_LABELS[key] ?? key)]}
               empty="No leads match these filters. Create one or import a CSV."
+              className="[&_th]:px-2 [&_th]:py-2 [&_th]:text-sm"
             >
               {rows.length
                 ? rows.map((lead) => (
                     <tr key={lead.id} className="border-b border-[var(--ic-border)] last:border-0">
-                      <td className="px-3 py-3">
+                      <td className={CELL_CLASS}>
                         <Checkbox
                           checked={selected.includes(lead.id)}
                           onCheckedChange={(v) => toggleOne(lead.id, v === true)}
                           aria-label={`Select ${lead.fullName}`}
                         />
                       </td>
-                      <td className="px-3 py-3">
-                        <Link href={`/leads/${lead.id}`} className="font-medium text-primary">
-                          {lead.fullName}
-                        </Link>
-                        <div className="text-2xs text-subtle">{lead.email}</div>
-                      </td>
-                      <td className="px-3 py-3 text-muted">{lead.company ?? "—"}</td>
-                      <td className="px-3 py-3">{lead.source?.name ?? "—"}</td>
-                      <td className="px-3 py-3">{lead.stage?.name ?? "—"}</td>
-                      <td className="px-3 py-3">
-                        <Badge tone={toneForStatus(lead.status)}>{lead.status}</Badge>
-                      </td>
-                      <td className="px-3 py-3">
-                        <Badge tone="neutral">{lead.priority}</Badge>
-                      </td>
-                      <td className="px-3 py-3">
-                        {lead.assignedUser ? (
-                          <span className="inline-flex items-center gap-2">
-                            <Avatar name={lead.assignedUser.name} size="sm" />
-                            <span className="text-sm">
-                              {lead.assignedUser.name ?? lead.assignedUser.email}
-                            </span>
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="px-3 py-3">{lead.leadScore}</td>
-                      <td className="px-3 py-3 text-muted">
-                        {lead.nextFollowUpAt
-                          ? format(new Date(lead.nextFollowUpAt), "dd MMM yyyy")
-                          : "—"}
-                      </td>
+                      {activeColumns.map((key) => (
+                        <td key={key} className={CELL_CLASS}>
+                          {renderLeadColumn(key, lead, timezone)}
+                        </td>
+                      ))}
                     </tr>
                   ))
                 : null}

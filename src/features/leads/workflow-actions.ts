@@ -13,6 +13,11 @@ import {
   taskSchema,
 } from "@/lib/validations/leads";
 import { recordActivity } from "@/lib/leads/activity";
+import {
+  notifyFollowUpCreated,
+  notifyMeetingLogged,
+} from "@/lib/email/crm-notify";
+import { syncLeadNextFollowUpAt } from "@/lib/leads/follow-up-sync";
 
 async function requireLead(organizationId: string, leadId: string) {
   return prisma.lead.findFirst({
@@ -246,7 +251,8 @@ export async function createFollowUpAction(
     if (!lead) return { ok: false, error: "Lead not found" };
 
     const dueAt = new Date(parsed.data.dueAt);
-    await prisma.leadFollowUp.create({
+    const assignedUserId = parsed.data.assignedUserId || tenant.userId;
+    const followUp = await prisma.leadFollowUp.create({
       data: {
         organizationId: tenant.organizationId,
         leadId,
@@ -254,7 +260,7 @@ export async function createFollowUpAction(
         description: parsed.data.description,
         type: parsed.data.type ?? FollowUpType.CALL,
         dueAt,
-        assignedUserId: parsed.data.assignedUserId || tenant.userId,
+        assignedUserId,
         priority: parsed.data.priority ?? LeadPriority.MEDIUM,
       },
     });
@@ -269,6 +275,17 @@ export async function createFollowUpAction(
       type: "FOLLOW_UP_CREATED",
       message: `Follow-up scheduled: ${parsed.data.title}`,
     });
+    await notifyFollowUpCreated({
+      organizationId: tenant.organizationId,
+      organizationName: tenant.organizationName,
+      leadId,
+      leadName: lead.fullName,
+      followUpId: followUp.id,
+      title: parsed.data.title,
+      dueAt,
+      assignedUserId,
+    });
+    await syncLeadNextFollowUpAt(leadId);
     revalidateLead(leadId);
     return { ok: true };
   } catch (error) {
@@ -316,6 +333,7 @@ export async function updateFollowUpAction(
       where: { id: item.leadId },
       data: { nextFollowUpAt: dueAt },
     });
+    await syncLeadNextFollowUpAt(item.leadId);
     revalidateLead(item.leadId);
     return { ok: true };
   } catch (error) {
@@ -336,6 +354,7 @@ export async function cancelFollowUpAction(formData: FormData): Promise<void> {
       where: { id: followUpId },
       data: { status: TaskStatus.CANCELLED },
     });
+    await syncLeadNextFollowUpAt(item.leadId);
     revalidateLead(item.leadId);
   } catch (error) {
     if (!isAppError(error)) console.error(error);
@@ -367,6 +386,7 @@ export async function completeFollowUpAction(
     type: "FOLLOW_UP_COMPLETED",
     message: `Follow-up completed: ${item.title}`,
   });
+  await syncLeadNextFollowUpAt(item.leadId);
   revalidateLead(item.leadId);
 }
 
@@ -427,6 +447,18 @@ export async function logActivityAction(
       where: { id: leadId },
       data: { lastContactedAt: new Date() },
     });
+    if (kind === "MEETING" && lead.assignedUserId) {
+      await notifyMeetingLogged({
+        organizationId: tenant.organizationId,
+        organizationName: tenant.organizationName,
+        leadId,
+        leadName: lead.fullName,
+        assignedUserId: lead.assignedUserId,
+        actorUserId: tenant.userId,
+        meetingTitle: parsed.data.meetingTitle,
+        notes: parsed.data.notes,
+      });
+    }
     revalidateLead(leadId);
     return { ok: true };
   } catch (error) {

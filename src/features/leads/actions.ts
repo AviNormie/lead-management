@@ -17,6 +17,7 @@ import { recordActivity } from "@/lib/leads/activity";
 import { syncLeadTags } from "@/lib/leads/tags";
 import { LOST_REASONS } from "@/lib/leads/lost-reasons";
 import { leadVisibilityWhere } from "@/features/leads/scope";
+import { notifyLeadAssigned } from "@/lib/email/crm-notify";
 
 export type LeadActionResult =
   | { ok: true; message?: string; leadId?: string }
@@ -202,6 +203,15 @@ export async function createLeadAction(
         message: "Lead assigned",
         next: { assignedUserId: lead.assignedUserId },
       });
+      await notifyLeadAssigned({
+        organizationId: tenant.organizationId,
+        organizationName: tenant.organizationName,
+        leadId: lead.id,
+        leadName: fullName,
+        assignedUserId: lead.assignedUserId,
+        actorUserId: tenant.userId,
+        actorName: tenant.userName ?? tenant.userEmail,
+      });
     }
 
     await syncLeadTags(tenant.organizationId, lead.id, data.tags);
@@ -265,6 +275,11 @@ export async function updateLeadAction(
       data.productId,
     );
 
+    const callbackAtRaw = String(formData.get("callbackAt") ?? "").trim();
+    const nextFollowUpAtRaw = String(formData.get("nextFollowUpAt") ?? "").trim();
+    const callbackAt = callbackAtRaw ? new Date(callbackAtRaw) : undefined;
+    const nextFollowUpAt = nextFollowUpAtRaw ? new Date(nextFollowUpAtRaw) : undefined;
+
     await prisma.lead.update({
       where: { id: leadId },
       data: {
@@ -302,6 +317,8 @@ export async function updateLeadAction(
         description: data.description,
         pipelineId,
         stageId: data.stageId,
+        ...(callbackAtRaw ? { callbackAt: callbackAt ?? null } : {}),
+        ...(nextFollowUpAtRaw ? { nextFollowUpAt: nextFollowUpAt ?? null } : {}),
       },
     });
 
@@ -314,6 +331,19 @@ export async function updateLeadAction(
       type: "UPDATED",
       message: "Lead details updated",
     });
+
+    const nextAssignee = data.assignedUserId || null;
+    if (nextAssignee && nextAssignee !== existing.assignedUserId) {
+      await notifyLeadAssigned({
+        organizationId: tenant.organizationId,
+        organizationName: tenant.organizationName,
+        leadId,
+        leadName: fullName,
+        assignedUserId: nextAssignee,
+        actorUserId: tenant.userId,
+        actorName: tenant.userName ?? tenant.userEmail,
+      });
+    }
 
     revalidatePath(`/leads/${leadId}`);
     revalidatePath("/leads");
@@ -376,6 +406,17 @@ export async function assignLeadAction(
       previous: { assignedUserId: lead.assignedUserId },
       next: { assignedUserId },
     });
+    if (assignedUserId && assignedUserId !== lead.assignedUserId) {
+      await notifyLeadAssigned({
+        organizationId: tenant.organizationId,
+        organizationName: tenant.organizationName,
+        leadId,
+        leadName: lead.fullName,
+        assignedUserId,
+        actorUserId: tenant.userId,
+        actorName: tenant.userName ?? tenant.userEmail,
+      });
+    }
     revalidatePath(`/leads/${leadId}`);
     return { ok: true };
   } catch (error) {
@@ -443,6 +484,7 @@ export async function changeLeadStatusAction(
   leadId: string,
   status: LeadStatus,
   lostReason?: string,
+  lostComment?: string,
 ): Promise<ActionResult> {
   try {
     const tenant = await requirePermission("lead.edit");
@@ -466,6 +508,7 @@ export async function changeLeadStatusAction(
       data: {
         status,
         lostReason: status === "LOST" ? lostReason : null,
+        lostComment: status === "LOST" ? lostComment?.trim() || null : null,
         convertedAt: status === "CONVERTED" ? new Date() : lead.convertedAt,
       },
     });
@@ -486,7 +529,7 @@ export async function changeLeadStatusAction(
             ? "Lead converted"
             : `Status changed to ${status}`,
       previous: { status: lead.status },
-      next: { status },
+      next: { status, lostReason: lostReason ?? null, lostComment: lostComment ?? null },
     });
     revalidatePath(`/leads/${leadId}`);
     revalidatePath("/dashboard");
@@ -588,6 +631,26 @@ export async function bulkLeadAction(formData: FormData): Promise<ActionResult> 
       where: { id: { in: scopedIds }, organizationId: tenant.organizationId },
       data,
     });
+
+    if (op === "assign" && data.assignedUserId) {
+      const assigneeId = String(data.assignedUserId);
+      const leads = await prisma.lead.findMany({
+        where: { id: { in: scopedIds }, organizationId: tenant.organizationId },
+        select: { id: true, fullName: true },
+      });
+      for (const lead of leads) {
+        await notifyLeadAssigned({
+          organizationId: tenant.organizationId,
+          organizationName: tenant.organizationName,
+          leadId: lead.id,
+          leadName: lead.fullName,
+          assignedUserId: assigneeId,
+          actorUserId: tenant.userId,
+          actorName: tenant.userName ?? tenant.userEmail,
+        });
+      }
+    }
+
     revalidatePath("/leads");
     revalidatePath("/dashboard");
     return { ok: true, message: `Updated ${scopedIds.length} leads` };

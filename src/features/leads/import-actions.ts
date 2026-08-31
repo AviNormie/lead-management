@@ -19,7 +19,9 @@ const FIELD_KEYS = [
   "whatsappNumber",
   "website",
   "jobTitle",
+  "gstNo",
   "address",
+  "productName",
   "city",
   "state",
   "country",
@@ -82,6 +84,14 @@ export async function importLeadsCsvAction(
     const sources = await prisma.leadSource.findMany({
       where: { organizationId: tenant.organizationId },
     });
+    const products = await prisma.leadProduct.findMany({
+      where: { organizationId: tenant.organizationId, isActive: true },
+    });
+    const productByKey = new Map<string, { id: string; name: string }>();
+    for (const product of products) {
+      productByKey.set(product.name.toLowerCase(), product);
+      productByKey.set(product.code.toLowerCase(), product);
+    }
     const sourceByCode = new Map(sources.map((s) => [s.code.toLowerCase(), s.id]));
     const defaultSource = sources.find((s) => s.code === "import") ?? sources[0];
     const defaultPipeline = await prisma.pipeline.findFirst({
@@ -130,6 +140,11 @@ export async function importLeadsCsvAction(
           sourceByCode.get(mapped.sourceCode.toLowerCase())) ||
         defaultSource?.id;
 
+      const product =
+        mapped.productName
+          ? productByKey.get(mapped.productName.toLowerCase())
+          : undefined;
+
       try {
         const lead = await prisma.lead.create({
           data: {
@@ -143,6 +158,7 @@ export async function importLeadsCsvAction(
             alternatePhone: mapped.alternatePhone,
             whatsappNumber: mapped.whatsappNumber,
             website: mapped.website,
+            gstNo: mapped.gstNo,
             jobTitle: mapped.jobTitle,
             address: mapped.address,
             city: mapped.city,
@@ -151,6 +167,8 @@ export async function importLeadsCsvAction(
             postalCode: mapped.postalCode,
             industry: mapped.industry,
             description: mapped.description,
+            productId: product?.id,
+            productInterest: product?.name,
             sourceId,
             pipelineId: defaultPipeline?.id,
             stageId: defaultStage?.id,
@@ -223,7 +241,7 @@ export async function exportLeadsCsvAction(filters: Record<string, string> = {})
   const parsed = parseLeadListQuery(filters);
   const leads = await prisma.lead.findMany({
     where: leadListWhere(tenant, parsed),
-    include: { source: true, stage: true, assignedUser: true },
+    include: { source: true, stage: true, assignedUser: true, product: true },
     orderBy: { createdAt: "desc" },
     take: 5000,
   });
@@ -232,8 +250,11 @@ export async function exportLeadsCsvAction(filters: Record<string, string> = {})
     leads.map((lead) => ({
       name: lead.fullName,
       company: lead.company ?? "",
+      gstNo: lead.gstNo ?? "",
       email: lead.email ?? "",
       phone: lead.phone ?? "",
+      address: lead.address ?? "",
+      interestedIn: lead.product?.name ?? lead.productInterest ?? "",
       source: lead.source?.name ?? "",
       stage: lead.stage?.name ?? "",
       status: lead.status,

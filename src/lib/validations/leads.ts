@@ -144,10 +144,11 @@ export const leadListQuerySchema = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
   view: z.enum(["table", "kanban"]).optional(),
+  interested: z.enum(["true"]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   sort: z
-    .enum(["createdAt", "fullName", "leadScore", "nextFollowUpAt"])
+    .enum(["createdAt", "fullName", "leadScore", "nextFollowUpAt", "reEngagedAt"])
     .default("createdAt"),
   dir: z.enum(["asc", "desc"]).default("desc"),
 });
