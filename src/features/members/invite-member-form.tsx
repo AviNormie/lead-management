@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const initial: (ActionResult & { inviteUrl?: string }) | null = null;
+const initial: (ActionResult & {
+  inviteUrl?: string;
+  emailSent?: boolean;
+}) | null = null;
 
 export function InviteMemberForm({
   roles,
@@ -57,9 +60,15 @@ export function InviteMemberForm({
       {state && !state.ok ? (
         <p className="sm:col-span-3 text-sm text-danger">{state.error}</p>
       ) : null}
+      {state?.ok && state.emailSent ? (
+        <p className="sm:col-span-3 text-sm text-muted">
+          {state.message ?? "Invitation sent"}
+        </p>
+      ) : null}
       {state?.ok && state.inviteUrl ? (
         <p className="sm:col-span-3 break-all text-sm text-muted">
-          Invite URL (email not configured): {state.inviteUrl}
+          {state.message ?? "Invitation created"}. Share this link:{" "}
+          {state.inviteUrl}
         </p>
       ) : null}
     </form>

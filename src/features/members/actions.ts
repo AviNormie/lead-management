@@ -12,7 +12,10 @@ import {
   inviteMemberSchema,
 } from "@/lib/validations/auth";
 import { isAppError } from "@/lib/errors";
-import type { ActionResult } from "@/features/auth/actions";
+import type { ActionResult } from "@/features/auth/types";
+import { isEmailConfigured } from "@/lib/email/client";
+import { sendEmail } from "@/lib/email/send";
+import { memberInvitationEmail } from "@/lib/email/templates";
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -23,9 +26,9 @@ function siteUrl() {
 }
 
 export async function inviteMemberAction(
-  _prev: ActionResult | null,
+  _prev: (ActionResult & { inviteUrl?: string; emailSent?: boolean }) | null,
   formData: FormData,
-): Promise<ActionResult & { inviteUrl?: string }> {
+): Promise<ActionResult & { inviteUrl?: string; emailSent?: boolean }> {
   try {
     const tenant = await requirePermission("member.invite");
 
@@ -106,10 +109,53 @@ export async function inviteMemberAction(
     });
 
     const inviteUrl = `${siteUrl()}/accept-invite?token=${rawToken}`;
-    console.info("[invite] Invitation URL (email stub):", inviteUrl);
+
+    const org = await prisma.organization.findUnique({
+      where: { id: tenant.organizationId },
+      select: { name: true },
+    });
+    const inviter = await prisma.user.findUnique({
+      where: { id: tenant.userId },
+      select: { name: true, email: true },
+    });
+
+    const template = memberInvitationEmail({
+      organizationName: org?.name ?? "your organization",
+      roleName: role.name,
+      inviteUrl,
+      invitedByName: inviter?.name ?? inviter?.email,
+    });
+
+    const mail = await sendEmail({
+      to: email,
+      subject: template.subject,
+      html: template.html,
+      text: template.text,
+    });
+
+    const emailSent = mail.ok === true;
+    if (!emailSent) {
+      const detail =
+        mail.ok === false && mail.skipped
+          ? mail.reason
+          : mail.ok === false
+            ? mail.error
+            : "";
+      console.info("[invite] Invitation URL (email not sent):", inviteUrl, detail);
+    }
 
     revalidatePath("/settings/users");
-    return { ok: true, inviteUrl, message: "Invitation created" };
+    return {
+      ok: true,
+      // Show copyable URL when Resend is not configured or send failed
+      inviteUrl: emailSent ? undefined : inviteUrl,
+      emailSent,
+      message: emailSent
+        ? "Invitation sent"
+        : isEmailConfigured()
+          ? "Invitation created (email failed — share the link below)"
+          : "Invitation created (email not configured — share the link below)",
+    };
   } catch (error) {
     if (isAppError(error)) {
       return { ok: false, error: error.message, code: error.code };
