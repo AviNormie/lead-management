@@ -31,6 +31,14 @@ model User {
   assignedFollowUps   LeadFollowUp[]
   activities          LeadActivity[]
   importJobs          ImportJob[]
+  callRecords         LeadCallRecord[]
+  transfersFrom       LeadTransfer[]       @relation("TransferFromUser")
+  transfersTo         LeadTransfer[]       @relation("TransferToUser")
+  transfersBy         LeadTransfer[]       @relation("TransferByUser")
+  reengagements       LeadReengagement[]   @relation("ReengagementCreator")
+  reengagementsAssigned LeadReengagement[] @relation("ReengagementAssignee")
+  communications      LeadCommunication[]
+  assignedInquiries   Inquiry[]            @relation("InquiryAssignee")
 
   @@map("users")
 }
@@ -78,6 +86,17 @@ model Organization {
   leadFollowUps LeadFollowUp[]
   leadActivities LeadActivity[]
   importJobs    ImportJob[]
+  leadViews     LeadView[]
+  customFieldDefinitions LeadCustomFieldDefinition[]
+  customFieldValues LeadCustomFieldValue[]
+  callRecords   LeadCallRecord[]
+  transfers     LeadTransfer[]
+  reengagements LeadReengagement[]
+  flagDefinitions LeadFlagDefinition[]
+  scoreSnapshots LeadScoreSnapshot[]
+  integrations  Integration[]
+  communications LeadCommunication[]
+  inquiries      Inquiry[]
 
   @@map("organizations")
 }
@@ -263,10 +282,51 @@ enum LeadPriority {
   URGENT
 }
 
+enum InquiryStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
 enum TaskStatus {
   PENDING
   COMPLETED
   CANCELLED
+  RESCHEDULED
+}
+
+enum LeadViewCategory {
+  HOME
+  ADMISSION
+  FLAGGED
+  REPORTS
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  SELECT
+  DATE
+  BOOLEAN
+  TEXTAREA
+}
+
+enum IntegrationStatus {
+  DISCONNECTED
+  CONNECTED
+  ERROR
+}
+
+enum CommunicationType {
+  WHATSAPP
+  EMAIL
+  SMS
+}
+
+enum CommunicationDirection {
+  INBOUND
+  OUTBOUND
 }
 
 enum FollowUpType {
@@ -392,8 +452,12 @@ model Lead {
   description      String?
   lastContactedAt  DateTime?
   nextFollowUpAt   DateTime?
+  reEngagedAt      DateTime?
+  callbackAt       DateTime?
+  lastScoreUpdatedAt DateTime?
   convertedAt      DateTime?
   lostReason       String?
+  lostComment      String?
   archivedAt       DateTime?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -406,10 +470,18 @@ model Lead {
   assignedUser User?        @relation("LeadAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
   assignedTeam Team?        @relation(fields: [assignedTeamId], references: [id], onDelete: SetNull)
   tags         LeadTagOnLead[]
+  flags        LeadFlagOnLead[]
   notes        LeadNote[]
   tasks        LeadTask[]
   followUps    LeadFollowUp[]
   activities   LeadActivity[]
+  callRecords  LeadCallRecord[]
+  transfers    LeadTransfer[]
+  reengagements LeadReengagement[]
+  customFieldValues LeadCustomFieldValue[]
+  scoreSnapshots LeadScoreSnapshot[]
+  communications LeadCommunication[]
+  linkedInquiries Inquiry[]
 
   @@index([organizationId, email])
   @@index([organizationId, phone])
@@ -420,6 +492,9 @@ model Lead {
   @@index([organizationId, assignedUserId])
   @@index([organizationId, createdAt])
   @@index([organizationId, nextFollowUpAt])
+  @@index([organizationId, reEngagedAt])
+  @@index([organizationId, callbackAt])
+  @@index([organizationId, leadScore])
   @@map("leads")
 }
 
@@ -498,6 +573,7 @@ model LeadFollowUp {
   assignedUserId String?      @db.Uuid
   priority       LeadPriority @default(MEDIUM)
   status         TaskStatus   @default(PENDING)
+  remindedAt     DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -507,6 +583,7 @@ model LeadFollowUp {
 
   @@index([organizationId, leadId])
   @@index([organizationId, status, dueAt])
+  @@index([status, dueAt, remindedAt])
   @@map("lead_follow_ups")
 }
 
@@ -548,4 +625,262 @@ model ImportJob {
 
   @@index([organizationId, createdAt])
   @@map("import_jobs")
+}
+
+model LeadView {
+  id                 String           @id @default(cuid())
+  organizationId     String
+  name               String
+  slug               String
+  description        String?
+  category           LeadViewCategory @default(HOME)
+  filters            Json             @default("{}")
+  sort               String           @default("createdAt")
+  sortDir            String           @default("desc")
+  columns            Json             @default("[]")
+  isSystem           Boolean          @default(false)
+  isActive           Boolean          @default(true)
+  sortOrder          Int              @default(0)
+  requiredPermission String?
+  href               String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, category, sortOrder])
+  @@map("lead_views")
+}
+
+model LeadCustomFieldDefinition {
+  id             String          @id @default(cuid())
+  organizationId String
+  key            String
+  label          String
+  type           CustomFieldType @default(TEXT)
+  options        Json?
+  section        String          @default("profile")
+  sortOrder      Int             @default(0)
+  isRequired     Boolean         @default(false)
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  values       LeadCustomFieldValue[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId, section, sortOrder])
+  @@map("lead_custom_field_definitions")
+}
+
+model LeadCustomFieldValue {
+  id             String   @id @default(cuid())
+  organizationId String
+  leadId         String
+  fieldId        String
+  value          String?
+  valueJson      Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead                      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  field        LeadCustomFieldDefinition @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([leadId, fieldId])
+  @@index([organizationId, leadId])
+  @@map("lead_custom_field_values")
+}
+
+model LeadCallRecord {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  leadId               String
+  userId               String   @db.Uuid
+  calledAt             DateTime @default(now())
+  durationSec          Int?
+  phoneNumber          String?
+  didNumber            String?
+  callType             String   @default("OUTBOUND")
+  outcome              String?
+  notes                String?
+  nextFollowUpAt       DateTime?
+  callbackAt           DateTime?
+  recordingPath        String?
+  recordingFileName      String?
+  recordingMimeType      String?
+  recordingSizeBytes     Int?
+  recordingDurationSec   Int?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, leadId, calledAt])
+  @@index([organizationId, userId])
+  @@map("lead_call_records")
+}
+
+model LeadTransfer {
+  id              String   @id @default(cuid())
+  organizationId  String
+  leadId          String
+  fromUserId      String?  @db.Uuid
+  toUserId        String?  @db.Uuid
+  fromTeamId      String?
+  toTeamId        String?
+  reason          String?
+  transferredById String   @db.Uuid
+  createdAt       DateTime @default(now())
+
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead          Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromUser      User?        @relation("TransferFromUser", fields: [fromUserId], references: [id], onDelete: SetNull)
+  toUser        User?        @relation("TransferToUser", fields: [toUserId], references: [id], onDelete: SetNull)
+  transferredBy User         @relation("TransferByUser", fields: [transferredById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, leadId, createdAt])
+  @@index([organizationId, toUserId])
+  @@map("lead_transfers")
+}
+
+model LeadReengagement {
+  id               String    @id @default(cuid())
+  organizationId   String
+  leadId           String
+  reengagedAt      DateTime  @default(now())
+  reason           String?
+  previousStageId  String?
+  newStageId       String?
+  assignedUserId   String?   @db.Uuid
+  nextCallDueAt    DateTime?
+  followUpAt       DateTime?
+  notes            String?
+  createdById      String    @db.Uuid
+  createdAt        DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignedUser User?        @relation("ReengagementAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdBy    User         @relation("ReengagementCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, leadId, reengagedAt])
+  @@map("lead_reengagements")
+}
+
+model LeadFlagDefinition {
+  id             String   @id @default(cuid())
+  organizationId String
+  key            String
+  label          String
+  color          String?
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leads        LeadFlagOnLead[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId, sortOrder])
+  @@map("lead_flag_definitions")
+}
+
+model LeadFlagOnLead {
+  leadId String
+  flagId String
+
+  lead Lead               @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  flag LeadFlagDefinition @relation(fields: [flagId], references: [id], onDelete: Cascade)
+
+  @@id([leadId, flagId])
+  @@map("lead_flags_on_leads")
+}
+
+model LeadScoreSnapshot {
+  id             String   @id @default(cuid())
+  organizationId String
+  leadId         String
+  score          Int
+  breakdown      Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, leadId, createdAt])
+  @@map("lead_score_snapshots")
+}
+
+model Inquiry {
+  id               String         @id @default(cuid())
+  organizationId   String
+  subject          String
+  description      String?
+  contactName      String
+  email            String?
+  phone            String?
+  status           InquiryStatus  @default(OPEN)
+  priority         LeadPriority   @default(MEDIUM)
+  assignedUserId   String?        @db.Uuid
+  linkedLeadId     String?
+  source           String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedUser User?        @relation("InquiryAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  linkedLead   Lead?        @relation(fields: [linkedLeadId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, assignedUserId])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, priority])
+  @@map("inquiries")
+}
+
+model Integration {
+  id             String            @id @default(cuid())
+  organizationId String
+  provider       String
+  status         IntegrationStatus @default(DISCONNECTED)
+  credentialsRef String?
+  metadata       Json?
+  lastSyncAt     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider])
+  @@index([organizationId])
+  @@map("integrations")
+}
+
+model LeadCommunication {
+  id             String                 @id @default(cuid())
+  organizationId String
+  leadId         String
+  userId         String?                @db.Uuid
+  type           CommunicationType
+  direction      CommunicationDirection @default(OUTBOUND)
+  subject        String?
+  bodyPreview    String?
+  externalId     String?
+  occurredAt     DateTime               @default(now())
+  metadata       Json?
+  createdAt      DateTime               @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, leadId, occurredAt])
+  @@map("lead_communications")
 }
