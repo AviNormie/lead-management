@@ -13,11 +13,13 @@ import {
   Building2,
   KanbanSquare,
   CalendarClock,
-  ListTodo,
   GitBranch,
   Radio,
-  Upload,
   Package,
+  XCircle,
+  Heart,
+  CheckCircle2,
+  BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logoutAction } from "@/features/auth/actions";
@@ -104,23 +106,20 @@ type NavItem = {
 
 type NavGroup = { title: string; items: NavItem[] };
 
-const navGroups: NavGroup[] = [
-  {
-    title: "MAIN",
-    items: [
-      { href: "/dashboard", label: "Overview", icon: LayoutDashboard, exact: true },
-      { href: "/leads", label: "Lead Management", icon: KanbanSquare, exact: true },
-      { href: "/leads/follow-ups", label: "Follow-ups", icon: CalendarClock },
-      { href: "/leads/tasks", label: "Tasks", icon: ListTodo },
-      { href: "/leads/import", label: "Import", icon: Upload },
-    ],
-  },
+type LeadNavGroup = {
+  title: string;
+  category: string;
+  items: { href: string; label: string; slug: string }[];
+};
+
+const orgNavGroups: NavGroup[] = [
   {
     title: "MY ORGANIZATION",
     items: [
       { href: "/settings/pipelines", label: "Pipelines", icon: GitBranch },
       { href: "/settings/lead-sources", label: "Lead sources", icon: Radio },
       { href: "/settings/lead-products", label: "Products", icon: Package },
+      { href: "/settings/custom-fields", label: "Custom fields", icon: Package },
       {
         href: "/settings/organization",
         label: "Organization",
@@ -142,14 +141,35 @@ const navGroups: NavGroup[] = [
   },
 ];
 
+function navIconForSlug(slug: string) {
+  if (slug.includes("lost")) return XCircle;
+  if (slug.includes("re-engaged")) return Heart;
+  if (slug.includes("confirmed") || slug.includes("closed")) return CheckCircle2;
+  if (slug.includes("report")) return BarChart3;
+  if (slug.includes("follow")) return CalendarClock;
+  if (slug.includes("call")) return PhoneIcon;
+  if (slug.includes("transfer")) return Users;
+  return KanbanSquare;
+}
+
+function PhoneIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
+}
+
 export function AppSidebar({
   userName,
   roleName,
   organizationName,
+  leadNavGroups = [],
 }: {
   userName: string;
   roleName: string;
   organizationName: string;
+  leadNavGroups?: LeadNavGroup[];
 }) {
   const pathname = usePathname();
   const firstName = userName.split(" ")[0] || userName;
@@ -170,7 +190,61 @@ export function AppSidebar({
       </div>
 
       <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-1">
-        {navGroups.map((group) => (
+        <div>
+          <p className="mb-2 px-3 text-2xs font-semibold tracking-wider text-subtle">
+            MAIN
+          </p>
+          <ul className="space-y-1">
+            <li>
+              <Link
+                href="/dashboard"
+                className={cn(
+                  "flex items-center gap-2.5 rounded-pill px-3 py-2.5 text-sm transition",
+                  pathname === "/dashboard"
+                    ? "bg-nav-active font-medium text-white shadow-sm"
+                    : "text-muted hover:bg-white/70 hover:text-foreground",
+                )}
+              >
+                <LayoutDashboard className="h-4 w-4 shrink-0 opacity-80" />
+                Overview
+              </Link>
+            </li>
+          </ul>
+        </div>
+
+        {leadNavGroups.map((group) => (
+          <div key={group.category}>
+            <p className="mb-2 px-3 text-2xs font-semibold tracking-wider text-subtle">
+              {group.title}
+            </p>
+            <ul className="space-y-1">
+              {group.items.map((item) => {
+                const Icon = navIconForSlug(item.slug);
+                const active =
+                  pathname === item.href ||
+                  pathname.startsWith(`${item.href}/`);
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-pill px-3 py-2.5 text-sm transition",
+                        active
+                          ? "bg-nav-active font-medium text-white shadow-sm"
+                          : "text-muted hover:bg-white/70 hover:text-foreground",
+                      )}
+                    >
+                      <Icon className="h-4 w-4 shrink-0 opacity-80" />
+                      <span className="truncate">{item.label}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+
+        {orgNavGroups.map((group) => (
           <div key={group.title}>
             <p className="mb-2 px-3 text-2xs font-semibold tracking-wider text-subtle">
               {group.title}

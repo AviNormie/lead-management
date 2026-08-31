@@ -12,11 +12,19 @@ export function AppShell({
   userName,
   roleName,
   organizationName,
+  leadNavGroups = [],
+  unreadNotifications = 0,
   children,
 }: {
   userName: string;
   roleName: string;
   organizationName: string;
+  leadNavGroups?: {
+    title: string;
+    category: string;
+    items: { href: string; label: string; slug: string }[];
+  }[];
+  unreadNotifications?: number;
   children: React.ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -30,10 +38,10 @@ export function AppShell({
           userName={userName}
           roleName={roleName}
           organizationName={organizationName}
+          leadNavGroups={leadNavGroups}
         />
       </div>
 
-      {/* Mobile sidebar drawer */}
       <div
         className={cn(
           "fixed inset-0 z-40 bg-black/30 transition md:hidden",
@@ -61,6 +69,7 @@ export function AppShell({
           userName={userName}
           roleName={roleName}
           organizationName={organizationName}
+          leadNavGroups={leadNavGroups}
         />
       </div>
 
@@ -77,7 +86,10 @@ export function AppShell({
           </Button>
           <p className="text-sm font-semibold">{organizationName}</p>
         </div>
-        <AppHeader placeholder="Search leads, people, settings…" />
+        <AppHeader
+          placeholder="Search leads, people, settings…"
+          unreadNotifications={unreadNotifications}
+        />
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </main>
       <Toaster />

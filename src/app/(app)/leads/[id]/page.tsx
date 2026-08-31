@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
+import { format } from "date-fns";
 import { hasPermission, requirePermission } from "@/lib/tenant";
 import { getLeadDetail, getLeadLookups } from "@/features/leads/queries";
-import { LeadDetailView } from "@/features/leads/lead-detail-view";
+import { LeadOverviewView } from "@/features/leads/lead-overview-view";
 
 export default async function LeadDetailPage({
   params,
@@ -17,14 +18,19 @@ export default async function LeadDetailPage({
   if (!lead) notFound();
 
   return (
-    <LeadDetailView
+    <LeadOverviewView
       lead={JSON.parse(JSON.stringify(lead))}
-      lookups={lookups}
+      stages={lookups.stages.map((s) => ({ id: s.id, name: s.name }))}
+      customFields={lookups.customFields.map((f) => ({
+        id: f.id,
+        key: f.key,
+        label: f.label,
+        type: f.type,
+        section: f.section,
+        options: f.options,
+      }))}
+      lastUpdated={format(new Date(), "h.mm a dd MMM yyyy")}
       canEdit={hasPermission(tenant, "lead.edit")}
-      canAssign={hasPermission(tenant, "lead.assign")}
-      canStage={hasPermission(tenant, "lead.change_stage")}
-      canConvert={hasPermission(tenant, "lead.convert")}
-      canDelete={hasPermission(tenant, "lead.delete")}
     />
   );
 }
